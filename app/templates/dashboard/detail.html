@@ -1,0 +1,111 @@
+{% extends "shell.html" %}
+{% set active_nav = "dashboard" %}
+{% set page_title = "Bảng điều khiển" %}
+{% block title %}Bảng điều khiển{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% endblock %}
+{% block main %}
+<h1 class="page-heading">Trợ lý AI</h1>
+<p class="page-subheading">Quản lý, huấn luyện và giám sát trợ lý AI của bạn</p>
+
+<div class="dash-layout">
+  <div class="dash-main">
+    <div class="bot-tabs">
+      {% for b in bots %}
+        <a class="bot-tab {{ 'active' if b.id == selected_bot.id else '' }}" href="{{ url_for('dashboard.index', bot_id=b.id) }}">
+          <span class="bot-tab-badge" style="background:{{ '#EC4899' if loop.index0 % 2 == 0 else '#0EA5E9' }};">{{ b.name[:2]|upper }}</span>
+          {{ b.name }}
+        </a>
+      {% endfor %}
+    </div>
+
+    <div class="bot-card">
+      <div class="bot-card-head">
+        <div class="bot-avatar">{{ selected_bot.name[:2]|upper }}</div>
+        <div class="bot-card-heading">
+          <div class="bot-card-title-row">
+            <span class="bot-card-name">{{ selected_bot.name }}</span>
+            <a href="{{ url_for('dashboard.bot_setup', bot_id=selected_bot.id) }}" class="bot-card-edit" aria-label="Sửa">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            </a>
+          </div>
+          {% if is_active %}
+            <span class="status-pill status-active"><span class="status-dot"></span>Đang hoạt động</span>
+          {% else %}
+            <span class="status-pill status-pending"><span class="status-dot"></span>Chưa có dữ liệu huấn luyện</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="bot-card-grid">
+        <div class="bot-card-field">
+          <span class="bot-card-field-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></span>
+          <div><div class="bot-card-field-label">Chủ sở hữu</div><div class="bot-card-field-value">{{ owner_name }}</div></div>
+        </div>
+        <div class="bot-card-field">
+          <span class="bot-card-field-icon">🌐</span>
+          <div><div class="bot-card-field-label">Ngôn ngữ</div><div class="bot-card-field-value">{{ "Tiếng Việt" if not settings or settings.language == "vi" else settings.language }}</div></div>
+        </div>
+        <div class="bot-card-field">
+          <span class="bot-card-field-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg></span>
+          <div><div class="bot-card-field-label">Ngày tạo</div><div class="bot-card-field-value">{{ selected_bot.created_at.strftime("%H:%M %d/%m/%Y") }}</div></div>
+        </div>
+        <div class="bot-card-field">
+          <span class="bot-card-field-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>
+          <div><div class="bot-card-field-label">Hết hạn gói</div><div class="bot-card-field-value">
+            {% if team and team.plan_expires_at %}
+              {{ team.plan_expires_at.strftime("%d/%m/%Y") }}
+            {% else %}
+              Không giới hạn
+            {% endif %}
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="section-heading">Quản lý trợ lý</h3>
+    <div class="action-grid">
+      <a class="actioncard" href="{{ url_for('dashboard.bot_setup', bot_id=selected_bot.id) }}">
+        <div class="actioncard-icon" style="background:var(--accent-soft);"><svg viewBox="0 0 24 24" width="16" height="16" style="color:var(--accent-dark)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg></div>
+        <div class="actioncard-title">Thiết lập</div>
+        <div class="actioncard-desc">Cấu hình hành vi và tùy chỉnh trợ lý.</div>
+        {% if is_configured %}
+          <div class="actioncard-stat" style="color:var(--green-text);">✓ Đã cấu hình</div>
+        {% else %}
+          <div class="actioncard-stat" style="color:var(--amber-text);">Chưa cấu hình</div>
+        {% endif %}
+      </a>
+      <a class="actioncard" href="{{ url_for('dashboard.bot_knowledge', bot_id=selected_bot.id) }}">
+        <div class="actioncard-icon" style="background:#EFF6FF;"><svg viewBox="0 0 24 24" width="16" height="16" style="color:#2563EB" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg></div>
+        <div class="actioncard-title">Cơ sở tri thức</div>
+        <div class="actioncard-desc">Quản lý tài liệu để AI trả lời chính xác.</div>
+        <div class="actioncard-stat" style="color:#2563EB;">{{ document_count }} tài liệu</div>
+      </a>
+      <a class="actioncard" href="{{ url_for('dashboard.bot_publish', bot_id=selected_bot.id) }}">
+        <div class="actioncard-icon" style="background:#F0FDF4;"><svg viewBox="0 0 24 24" width="16" height="16" style="color:#16A34A" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></div>
+        <div class="actioncard-title">Xuất bản</div>
+        <div class="actioncard-desc">Kết nối kênh và đưa trợ lý lên nền tảng.</div>
+        <div class="actioncard-stat" style="color:var(--text-faint);">Chưa xuất bản</div>
+      </a>
+      <a class="actioncard" href="{{ url_for('dashboard.bot_history', bot_id=selected_bot.id) }}">
+        <div class="actioncard-icon" style="background:#FAF5FF;"><svg viewBox="0 0 24 24" width="16" height="16" style="color:#9333EA" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
+        <div class="actioncard-title">Lịch sử chat</div>
+        <div class="actioncard-desc">Xem lại hội thoại và phân tích nội dung.</div>
+        <div class="actioncard-stat" style="color:#9333EA;">{{ conversation_count }} phiên</div>
+      </a>
+    </div>
+
+    <div class="section-row">
+      <h3 class="section-heading" style="margin:0;">Tổng quan</h3>
+      <div class="period-pill">30 ngày qua</div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Tổng tin nhắn</div><div class="stat-value">{{ stats.total }}</div></div>
+      <div class="stat-card"><div class="stat-label">Tin nhắn người dùng</div><div class="stat-value">{{ stats.customer }}</div></div>
+      <div class="stat-card"><div class="stat-label">Tin nhắn AI</div><div class="stat-value">{{ stats.bot }}</div></div>
+      <div class="stat-card"><div class="stat-label">Tin nhắn nhân viên</div><div class="stat-value">{{ stats.staff }}</div></div>
+      <div class="stat-card"><div class="stat-label">Tin nhắn FollowUp</div><div class="stat-value">{{ stats.followup }}</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

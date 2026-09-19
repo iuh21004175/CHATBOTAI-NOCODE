@@ -1,0 +1,267 @@
+.shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+/* ---- Sidebar ---- */
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.sidebar-team {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+}
+
+.sidebar-team-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #60A5FA, #2563EB);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-team-info {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.sidebar-team-name {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-team-sub {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.sidebar-nav {
+  padding: 0 12px;
+  flex-grow: 1;
+  overflow-y: auto;
+}
+
+.sidebar-section-label {
+  padding: 10px 12px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.navitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-soft);
+  margin-bottom: 2px;
+}
+
+.navitem:hover {
+  background: #F5F5F4;
+}
+
+.navitem.active {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.sidebar-profile {
+  margin: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #16A34A;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.sidebar-profile-info {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.sidebar-profile-name,
+.sidebar-profile-email {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-profile-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sidebar-profile-email {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ---- Main / topbar ---- */
+.shell-main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  height: 64px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.topbar-left,
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-title {
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+.icobtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-soft);
+  flex-shrink: 0;
+}
+
+.plan-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.plan-free {
+  border: 1px solid #BBF7D0;
+  background: var(--green-bg);
+  color: var(--green-text);
+}
+
+.plan-premium {
+  border: 1px solid #A7F3D0;
+  background: var(--green-bg);
+  color: var(--green-text);
+}
+
+.plan-expiry {
+  border: 1px solid #FED7AA;
+  background: var(--amber-bg);
+  color: var(--amber-text);
+  font-weight: 600;
+}
+
+.btn-primary-sm {
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: var(--black);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.btn-primary-sm:hover {
+  background: #1E40AF;
+}
+
+.shell-content {
+  flex-grow: 1;
+  padding: 28px;
+}
+
+@media (max-width: 880px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 20;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0);
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+    box-shadow: 0 0 0 9999px rgba(15, 23, 42, .35);
+  }
+
+  .shell-content {
+    padding: 16px;
+  }
+
+  .topbar {
+    padding: 0 16px;
+  }
+
+  .topbar-title {
+    display: none;
+  }
+}

@@ -1,0 +1,15 @@
+{% extends "shell.html" %}
+{% set active_nav = "" %}
+{% set page_title = title %}
+{% block title %}{{ title }}{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% endblock %}
+{% block main %}
+<div class="empty-state" style="min-height:400px;">
+  <div class="empty-state-icon">🚧</div>
+  <div class="empty-state-title">{{ title }} đang được xây dựng</div>
+  <div class="empty-state-desc">Tính năng này chưa sẵn sàng — quay lại Bảng điều khiển để tiếp tục.</div>
+  <a class="empty-state-cta" href="{{ url_for('dashboard.index') }}">Về Bảng điều khiển</a>
+</div>
+{% endblock %}

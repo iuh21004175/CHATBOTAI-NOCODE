@@ -1,0 +1,323 @@
+{% extends "bot_workspace.html" %}
+{% block title %}Cơ sở tri thức — {{ bot.name }}{% endblock %}
+{% block workspace_extra_css %}
+<style>
+.dropzone{border:1.5px dashed #A7C5EA;border-radius:14px;padding:28px;background:var(--accent-soft);display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:22px;text-align:center;cursor:pointer;}
+.dropzone.drag{background:#DCEBFF;}
+.doctable{width:100%;border-collapse:collapse;}
+.doctable th,.doctable td{padding:12px 14px;font-size:13px;text-align:left;vertical-align:middle;}
+.doctable th{font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;}
+.doctable td{border-top:1px solid #F1F5F9;}
+.filetag{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0;}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;}
+.b-green{background:var(--green-bg);color:var(--green-text);}
+.b-red{background:var(--error-bg);color:var(--error-text);}
+.b-amber{background:var(--amber-bg);color:var(--amber-text);}
+.b-gray{background:#F3F4F6;color:var(--text-soft);}
+.b-blue{background:var(--accent-soft);color:var(--accent-dark);}
+.cfg-link{font-size:12px;font-weight:700;color:var(--accent-dark);background:var(--accent-soft);padding:6px 12px;border-radius:8px;margin-right:6px;}
+.st-bar{width:150px;height:5px;border-radius:999px;background:#F1F5F9;overflow:hidden;margin-top:7px;}
+.st-bar i{display:block;height:100%;background:var(--amber-text);transition:width .4s;}
+.st-sub{font-size:11px;color:var(--text-soft);margin-top:4px;}
+.err-text{font-size:11px;color:var(--error-text);margin-top:4px;max-width:260px;word-break:break-word;}
+
+/* ---- Dung lượng ---- */
+.store-bar{height:10px;border-radius:999px;background:var(--border);overflow:hidden;}
+.store-bar i{display:block;height:100%;border-radius:999px;background:var(--black);transition:width .3s;}
+.store-warn .store-bar i{background:#F59E0B;}
+.store-full .store-bar i{background:#DC2626;}
+.store-note{margin-top:12px;padding:10px 14px;border-radius:10px;font-size:12.5px;font-weight:600;}
+.store-warn .store-note{background:var(--amber-bg);color:var(--amber-text);}
+.store-full .store-note{background:var(--error-bg);color:var(--error-text);}
+.store-stats{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:12px;font-size:12.5px;color:var(--text-soft);}
+.store-stats b{color:var(--text);}
+
+.live{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--text-soft);}
+.live i{width:8px;height:8px;border-radius:50%;background:#CBD5E1;}
+.live.on i{background:#16A34A;box-shadow:0 0 0 3px rgba(22,163,74,.2);}
+#toast-stack{position:fixed;right:20px;bottom:20px;z-index:200;display:flex;flex-direction:column;gap:8px;width:min(380px,calc(100vw - 40px));}
+</style>
+{% endblock %}
+{% block topbar_actions %}
+<button type="button" class="btnp" id="add-doc-btn">+ Thêm tài liệu</button>
+{% endblock %}
+{% block main %}
+{% set tagcolors = {"md": "#0EA5E9", "txt": "#64748B", "csv": "#16A34A"} %}
+<div class="ws-container">
+
+  <div class="card store-{{ storage.level }}" style="margin-bottom:22px;">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+      <div style="font-size:15px;font-weight:700;">Dung lượng cơ sở tri thức của trợ lý này</div>
+      <div style="font-size:13px;"><b>{{ storage.used|filesize }}</b> <span style="color:var(--text-soft);">/ {{ storage.limit|filesize }} ({{ storage.percent }}%)</span></div>
+    </div>
+    <div class="store-bar" role="progressbar" aria-valuenow="{{ storage.percent }}" aria-valuemin="0" aria-valuemax="100"><i style="width:{{ storage.percent }}%;"></i></div>
+    <div class="store-stats">
+      <span><b>{{ storage.documents }}</b> tài liệu</span>
+      <span><b>{{ "{:,}".format(storage.chunks).replace(",", ".") }}</b> chunk</span>
+      <span>Còn lại <b>{{ storage.remaining|filesize }}</b></span>
+      <span>Tối đa <b>{{ max_file_mb }} MB</b>/tệp</span>
+    </div>
+    {% if storage.level == "full" %}
+      <div class="store-note">Đã đầy dung lượng — hãy xóa bớt tài liệu cũ trước khi tải thêm.</div>
+    {% elif storage.level == "warn" %}
+      <div class="store-note">Sắp đầy dung lượng ({{ storage.percent }}%). Mỗi trợ lý có dung lượng riêng; xóa tài liệu không còn dùng để giải phóng chỗ.</div>
+    {% endif %}
+  </div>
+
+  <form id="upload-form" method="post" action="{{ url_for('dashboard.bot_knowledge_upload', bot_id=bot.id) }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="file" id="file-input" name="files" multiple accept=".txt,.md,.csv" style="display:none;">
+    <div class="dropzone" id="dropzone">
+      <div style="font-size:14px;font-weight:700;">Kéo thả tệp vào đây hoặc bấm để chọn tệp</div>
+      <div id="upload-progress" style="display:none;width:100%;max-width:420px;">
+        <div style="height:8px;border-radius:999px;background:#fff;overflow:hidden;"><div id="upload-bar" style="width:0%;height:100%;background:var(--black);transition:width .15s;"></div></div>
+        <div id="upload-pct" style="font-size:12px;color:var(--text-soft);margin-top:6px;">0%</div>
+      </div>
+      <div style="font-size:12px;color:var(--text-soft);">Hỗ trợ TXT, MD, CSV — tối đa {{ max_file_mb }}MB/tệp, còn {{ storage.remaining|filesize }} dung lượng (PDF, DOCX đang phát triển). Sau khi tải lên, bạn xem trước và cấu hình chunk riêng cho từng tệp rồi mới huấn luyện; trạng thái huấn luyện tự cập nhật ngay trên trang này.</div>
+    </div>
+  </form>
+
+  <form method="get" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+    <input class="field" style="width:280px;" type="text" name="q" placeholder="Tìm kiếm tài liệu..." value="{{ search }}">
+    <select class="field" style="width:auto;" name="ext" onchange="this.form.submit()">
+      <option value="">Tất cả loại tệp</option>
+      {% for e in ["txt", "md", "csv"] %}<option value="{{ e }}" {{ "selected" if ext == e else "" }}>{{ e|upper }}</option>{% endfor %}
+    </select>
+    <span class="live" id="live" style="margin-left:auto;"><i></i><span id="live-text">Đang kết nối…</span></span>
+  </form>
+
+  <div style="border:1px solid var(--border);border-radius:14px;background:#fff;overflow-x:auto;">
+    {% if documents %}
+    <table class="doctable">
+      <thead><tr><th style="padding-left:20px;">Tên tệp</th><th>Kích thước</th><th>Chunk</th><th>Trạng thái</th><th>Cập nhật</th><th></th></tr></thead>
+      <tbody>
+        {% for d in documents %}
+        {% set e = d.filename.rsplit(".", 1)[-1]|lower %}
+        <tr data-doc-id="{{ d.id }}">
+          <td style="padding-left:20px;"><div style="display:flex;align-items:center;gap:10px;"><div class="filetag" style="background:{{ tagcolors.get(e, '#64748B') }};">{{ e|upper }}</div><span class="doc-name" style="font-weight:700;">{{ d.filename }}</span></div></td>
+          <td style="color:var(--text-soft);">{{ (d.size_bytes or 0)|filesize }}</td>
+          <td class="chunks-cell" style="color:var(--text-soft);">{{ ("{:,}".format(d.chunk_count).replace(",", ".")) if d.status == "trained" else "—" }}</td>
+          <td class="status-cell" data-doc-id="{{ d.id }}" data-status="{{ d.status }}">
+            {% if d.status == "trained" %}<span class="badge b-green">✓ Đã huấn luyện</span>
+            {% elif d.status == "failed" %}<span class="badge b-red">Thất bại</span>{% if d.error_message %}<div class="err-text">{{ d.error_message }}</div>{% endif %}
+            {% elif d.status == "draft" %}<span class="badge b-blue">Chờ cấu hình chunk</span>
+            {% elif d.status == "processing" %}<span class="badge b-amber">Đang xử lý…</span>
+            {% else %}<span class="badge b-gray">Đang chờ xử lý</span>{% endif %}
+          </td>
+          <td style="color:var(--text-soft);">{{ d.created_at.strftime("%d/%m/%Y") }}</td>
+          <td style="text-align:right;white-space:nowrap;padding-right:20px;">
+            <a class="cfg-link" href="{{ url_for('dashboard.bot_document_chunks', bot_id=bot.id, document_id=d.id) }}" style="{{ '' if d.status in ('draft', 'trained', 'failed') else 'display:none;' }}">Cấu hình chunk</a>
+            <form method="post" action="{{ url_for('dashboard.bot_knowledge_delete', bot_id=bot.id, document_id=d.id) }}" style="display:inline;" onsubmit="return confirm('Xóa tài liệu này và toàn bộ dữ liệu đã huấn luyện?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" style="font-size:12px;font-weight:700;color:#DC2626;background:#FEF2F2;padding:6px 12px;border-radius:8px;border:none;">Xóa</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div style="padding:40px;text-align:center;color:var(--text-soft);font-size:13.5px;">Chưa có tài liệu nào. Tải tệp lên để huấn luyện trợ lý.</div>
+    {% endif %}
+  </div>
+</div>
+<div id="toast-stack" aria-live="polite"></div>
+{% endblock %}
+{% block footer_left %}<a href="{{ url_for('dashboard.bot_setup', bot_id=bot.id) }}" class="btns">← Quay lại: Thiết lập</a>{% endblock %}
+{% block footer_right %}<a href="{{ url_for('dashboard.bot_publish', bot_id=bot.id) }}" class="btnp">Tiếp theo: Xuất bản →</a>{% endblock %}
+{% block workspace_extra_js %}
+<script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+<script>
+(function () {
+  var BOT_ID = {{ bot.id }};
+  var MAX_FILE = {{ storage.max_file }};
+  var REMAINING = {{ storage.remaining }};
+  var STATUS_URL = '{{ url_for("dashboard.bot_knowledge_status", bot_id=bot.id) }}';
+
+  function fmtBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+  function fmtNum(n) { return String(n || 0).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
+  // ---------------- Tải lên ----------------
+  var input = document.getElementById('file-input');
+  var form = document.getElementById('upload-form');
+  var zone = document.getElementById('dropzone');
+  var box = document.getElementById('upload-progress');
+  var bar = document.getElementById('upload-bar');
+  var pct = document.getElementById('upload-pct');
+  var title = zone.firstElementChild;
+
+  function upload() {
+    var files = Array.prototype.slice.call(input.files);
+    if (!files.length) return;
+    var tooBig = files.filter(function (f) { return f.size > MAX_FILE; });
+    if (tooBig.length) {
+      alert('Tệp vượt quá {{ max_file_mb }}MB:\n' + tooBig.map(function (f) { return f.name + ' (' + fmtBytes(f.size) + ')'; }).join('\n'));
+      input.value = '';
+      return;
+    }
+    var total = files.reduce(function (sum, f) { return sum + f.size; }, 0);
+    if (total > REMAINING) {
+      alert('Không đủ dung lượng: trợ lý còn ' + fmtBytes(REMAINING) + ', các tệp đã chọn cần ' + fmtBytes(total) + '.\nHãy xóa bớt tài liệu cũ hoặc chọn ít tệp hơn.');
+      input.value = '';
+      return;
+    }
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', form.action);
+    box.style.display = 'block';
+    title.textContent = 'Đang tải lên...';
+    xhr.upload.onprogress = function (e) {
+      if (!e.lengthComputable) return;
+      var p = Math.round(e.loaded / e.total * 100);
+      bar.style.width = p + '%';
+      pct.textContent = p + '%';
+    };
+    xhr.upload.onload = function () { title.textContent = 'Đã tải lên — đang lưu tài liệu...'; };
+    xhr.onload = function () { window.location.href = xhr.responseURL || window.location.href; };
+    xhr.onerror = function () { title.textContent = 'Tải lên thất bại, thử lại.'; };
+    xhr.send(new FormData(form));
+  }
+
+  zone.addEventListener('click', function () { input.click(); });
+  document.getElementById('add-doc-btn').addEventListener('click', function () { input.click(); });
+  input.addEventListener('change', upload);
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    zone.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.add('drag'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    zone.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.remove('drag'); });
+  });
+  zone.addEventListener('drop', function (e) { input.files = e.dataTransfer.files; upload(); });
+
+  // ---------------- Trạng thái xử lý tài liệu: cập nhật trực tiếp ----------------
+  var toasts = document.getElementById('toast-stack');
+  var progressStart = {};   // id -> { t, done } để ước tính thời gian còn lại
+
+  function toast(kind, text) {
+    var node = document.createElement('div');
+    node.className = 'flash flash-' + kind;
+    node.textContent = text;
+    toasts.appendChild(node);
+    setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 7000);
+  }
+
+  function badge(cls, text) {
+    var node = document.createElement('span');
+    node.className = 'badge ' + cls;
+    node.textContent = text;
+    return node;
+  }
+
+  function line(className, text) {
+    var node = document.createElement('div');
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  function eta(id, done, total) {
+    var start = progressStart[id];
+    if (!start) { progressStart[id] = { t: Date.now(), done: done }; return ''; }
+    var rate = (Date.now() - start.t) / Math.max(done - start.done, 1);  // ms / chunk
+    if (done <= start.done) return '';
+    var minutes = Math.round(rate * (total - done) / 60000);
+    return minutes < 1 ? ', sắp xong' : ', còn ~' + minutes + ' phút';
+  }
+
+  function renderStatus(cell, info) {
+    cell.textContent = '';
+    cell.dataset.status = info.status;
+    if (info.status === 'trained') {
+      cell.appendChild(badge('b-green', '✓ Đã huấn luyện'));
+    } else if (info.status === 'failed') {
+      cell.appendChild(badge('b-red', 'Thất bại'));
+      if (info.error) cell.appendChild(line('err-text', info.error));
+    } else if (info.status === 'processing') {
+      var total = info.total || 0, done = info.done || 0;
+      var percent = total ? Math.floor(done * 100 / total) : 0;
+      cell.appendChild(badge('b-amber', total ? 'Đang xử lý ' + percent + '%' : 'Đang xử lý…'));
+      if (total) {
+        var track = document.createElement('div');
+        track.className = 'st-bar';
+        var fill = document.createElement('i');
+        fill.style.width = percent + '%';
+        track.appendChild(fill);
+        cell.appendChild(track);
+        cell.appendChild(line('st-sub', fmtNum(done) + '/' + fmtNum(total) + ' chunk' + eta(info.id, done, total)));
+      }
+    } else if (info.status === 'draft') {
+      cell.appendChild(badge('b-blue', 'Chờ cấu hình chunk'));
+    } else {
+      cell.appendChild(badge('b-gray', 'Đang chờ xử lý'));
+    }
+  }
+
+  // fromSnapshot: dữ liệu lấy từ API (không có tiến độ) -> chỉ áp dụng khi trạng thái thật sự khác
+  function applyStatus(info, fromSnapshot) {
+    var cell = document.querySelector('.status-cell[data-doc-id="' + info.id + '"]');
+    if (!cell) return;
+    var previous = cell.dataset.status;
+    if (fromSnapshot && previous === info.status) return;
+    renderStatus(cell, info);
+
+    var row = cell.closest('tr');
+    row.querySelector('.chunks-cell').textContent = info.status === 'trained' ? fmtNum(info.chunks) : '—';
+    row.querySelector('.cfg-link').style.display = ['draft', 'trained', 'failed'].indexOf(info.status) >= 0 ? '' : 'none';
+
+    if (previous !== info.status) {
+      var name = row.querySelector('.doc-name').textContent;
+      if (info.status === 'trained') toast('success', '✓ "' + name + '" đã huấn luyện xong (' + fmtNum(info.chunks) + ' chunk).');
+      if (info.status === 'failed') toast('error', '✗ "' + name + '" xử lý thất bại' + (info.error ? ': ' + info.error : '.'));
+    }
+  }
+
+  function syncSnapshot() {
+    return fetch(STATUS_URL, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (list) { list.forEach(function (d) { applyStatus(d, true); }); })
+      .catch(function () { /* mạng chập chờn: lần sau thử lại */ });
+  }
+
+  var live = document.getElementById('live');
+  var liveText = document.getElementById('live-text');
+  var pollTimer = null;
+  function setLive(connected) {
+    live.classList.toggle('on', connected);
+    liveText.textContent = connected ? 'Cập nhật trực tiếp' : 'Tự làm mới mỗi 5 giây';
+  }
+  // Dự phòng khi Socket.IO không dùng được (mất kết nối, bị chặn): hỏi máy chủ định kỳ
+  function startPolling() {
+    setLive(false);
+    if (!pollTimer) pollTimer = setInterval(syncSnapshot, 5000);
+  }
+  function stopPolling() {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+
+  if (window.io) {
+    var socket = io({ transports: ['websocket', 'polling'] });
+    socket.on('connect', function () {
+      // Vào phòng của bot này; server chỉ cho vào nếu bot thuộc team đang đăng nhập
+      socket.emit('join_bot', { bot_id: BOT_ID }, function (res) {
+        if (res && res.ok) {
+          stopPolling();
+          setLive(true);
+          syncSnapshot();  // bù sự kiện đã lỡ giữa lúc tải trang và lúc vào phòng
+        } else {
+          startPolling();
+        }
+      });
+    });
+    socket.on('document_status', function (info) { applyStatus(info, false); });
+    socket.on('connect_error', startPolling);
+    socket.on('disconnect', startPolling);
+  } else {
+    startPolling();
+  }
+})();
+</script>
+{% endblock %}

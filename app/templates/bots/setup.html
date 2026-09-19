@@ -1,0 +1,120 @@
+{% extends "bot_workspace.html" %}
+{% block title %}Thiết lập — {{ bot.name }}{% endblock %}
+{% block topbar_actions %}
+<button type="submit" form="setup-form" class="btnp">
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+  Lưu thay đổi
+</button>
+{% endblock %}
+{% block main %}
+<form id="setup-form" method="post" action="{{ url_for('dashboard.bot_setup', bot_id=bot.id) }}" class="ws-layout">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <div class="ws-layout-main">
+    <div class="card">
+      <div style="display:flex;gap:16px;align-items:center;margin-bottom:20px;">
+        <div style="width:64px;height:64px;border-radius:16px;background:#EC4899;color:#fff;font-size:20px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ bot.name[:2]|upper }}</div>
+        <div style="flex-grow:1;">
+          <label class="lbl" for="name">Tên trợ lý</label>
+          <input class="field" type="text" id="name" name="name" value="{{ bot.name }}" required>
+        </div>
+      </div>
+      <label class="lbl" for="greeting">Lời chào đầu tiên</label>
+      <textarea class="field" id="greeting" name="greeting" rows="2" style="resize:vertical;margin-bottom:16px;">{{ settings.greeting or "" }}</textarea>
+      <label class="lbl" for="instructions">Hướng dẫn &amp; tính cách</label>
+      <textarea class="field" id="instructions" name="instructions" rows="4" style="resize:vertical;">{{ settings.instructions or "" }}</textarea>
+      <div class="hint">Nội dung này giúp AI hiểu vai trò và cách xưng hô khi trò chuyện với khách hàng.</div>
+      <div class="hint">Muốn xem chatbox trông thế nào và chat thử? Vào <a href="{{ url_for('dashboard.bot_publish', bot_id=bot.id) }}" style="color:var(--accent-dark);font-weight:700;">Bước 3 — Xuất bản</a> (khung xem trước hiển thị tên, lời chào và ngôn ngữ đã lưu ở đây).</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Cấu hình mô hình AI</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;">
+        <div>
+          <label class="lbl" for="language">Ngôn ngữ</label>
+          <select class="field" id="language" name="language">
+            <option value="vi" {{ "selected" if settings.language == "vi" else "" }}>Tiếng Việt</option>
+            <option value="en" {{ "selected" if settings.language == "en" else "" }}>English</option>
+          </select>
+          <div class="hint">Trợ lý sẽ luôn trả lời bằng ngôn ngữ này, kể cả khi khách hỏi hoặc tài liệu viết bằng ngôn ngữ khác.</div>
+        </div>
+        <div>
+          <label class="lbl" for="ai_model">Mô hình AI</label>
+          <select class="field" id="ai_model" name="ai_model">
+            <option value="deepseek-chat" {{ "selected" if settings.ai_model == "deepseek-chat" else "" }}>DeepSeek-V3</option>
+            <option value="deepseek-reasoner" {{ "selected" if settings.ai_model == "deepseek-reasoner" else "" }}>DeepSeek-R1</option>
+          </select>
+        </div>
+      </div>
+      {# temperature = 0 là giá trị hợp lệ ("Chính xác") — không dùng `or` vì 0.0 bị coi là rỗng #}
+      {% set temp = settings.temperature if settings.temperature is not none else 0.7 %}
+      <label class="lbl" for="max_tokens">Token đầu ra tối đa: <span id="max-tokens-value">{{ settings.max_tokens or 500 }}</span></label>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+        <span style="font-size:11px;color:var(--text-faint);">10</span>
+        <input type="range" id="max_tokens" name="max_tokens" min="10" max="3000" step="10" value="{{ settings.max_tokens or 500 }}" style="flex-grow:1;accent-color:var(--black);">
+        <span style="font-size:11px;color:var(--text-faint);">3000</span>
+      </div>
+      <label class="lbl" for="temperature">Độ sáng tạo (temperature): <span id="temp-value">{{ "%.1f"|format(temp) }}</span></label>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-size:11px;color:var(--text-faint);">0 (Chính xác)</span>
+        <input type="range" id="temperature" name="temperature" min="0" max="1" step="0.1" value="{{ temp }}" style="flex-grow:1;accent-color:var(--black);">
+        <span style="font-size:11px;color:var(--text-faint);">1 (Sáng tạo)</span>
+      </div>
+      <div class="hint">Token đầu ra tối đa giới hạn độ dài câu trả lời của AI (khoảng 1 token ≈ 3–4 ký tự tiếng Việt).</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Chuyển tiếp &amp; thu thập dữ liệu</div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-row-title">Chuyển tiếp cho nhân viên khi AI không trả lời được</div>
+          <div class="toggle-row-desc">Tự động đẩy hội thoại vào Inbox</div>
+        </div>
+        <input type="checkbox" id="forward_to_staff" name="forward_to_staff" {{ "checked" if settings.forward_to_staff else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings.forward_to_staff else '' }}" data-toggle-target="forward_to_staff"><div class="dot"></div></button>
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-row-title">Thu thập thông tin khách hàng</div>
+          <div class="toggle-row-desc">Tên, số điện thoại, email trong hội thoại</div>
+        </div>
+        <input type="checkbox" id="collect_customer_info" name="collect_customer_info" {{ "checked" if settings.collect_customer_info else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings.collect_customer_info else '' }}" data-toggle-target="collect_customer_info"><div class="dot"></div></button>
+      </div>
+      <div style="margin-top:14px;">
+        <label class="lbl" for="away_message">Tin nhắn khi vắng mặt nhân viên</label>
+        <textarea class="field" id="away_message" name="away_message" rows="2" style="resize:vertical;">{{ settings.away_message or "" }}</textarea>
+      </div>
+    </div>
+  </div>
+
+</form>
+{% endblock %}
+{% block footer_right %}
+<a href="{{ url_for('dashboard.bot_knowledge', bot_id=bot.id) }}" class="btnp">Tiếp theo: Cơ sở tri thức →</a>
+{% endblock %}
+{% block workspace_extra_js %}
+<script>
+(function () {
+  document.querySelectorAll('[data-toggle-target]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var input = document.getElementById(btn.dataset.toggleTarget);
+      input.checked = !input.checked;
+      btn.classList.toggle('on', input.checked);
+    });
+  });
+
+  var tempInput = document.getElementById('temperature');
+  var tempValue = document.getElementById('temp-value');
+  if (tempInput && tempValue) {
+    tempInput.addEventListener('input', function () { tempValue.textContent = parseFloat(tempInput.value).toFixed(1); });
+  }
+
+  var maxTokensInput = document.getElementById('max_tokens');
+  var maxTokensValue = document.getElementById('max-tokens-value');
+  if (maxTokensInput && maxTokensValue) {
+    maxTokensInput.addEventListener('input', function () { maxTokensValue.textContent = maxTokensInput.value; });
+  }
+})();
+</script>
+{% endblock %}

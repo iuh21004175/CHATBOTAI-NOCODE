@@ -1,0 +1,82 @@
+{% extends "bot_workspace.html" %}
+{% block title %}Lịch sử chat — {{ bot.name }}{% endblock %}
+{% block workspace_extra_css %}
+<style>
+.convlist{width:420px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;background:var(--surface);}
+.convrow{display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid #F1F5F9;}
+.convrow.sel{background:var(--accent-soft);}
+.convrow-avatar{width:36px;height:36px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;}
+.chip{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;}
+.chatpane{flex-grow:1;display:flex;flex-direction:column;min-width:0;background:#FAFBFC;}
+.chat-history-wrap{flex-grow:1;display:flex;min-height:0;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff;}
+</style>
+{% endblock %}
+{% block main %}
+<div class="ws-container" style="display:flex;flex-direction:column;height:100%;">
+  <form method="get" action="{{ url_for('dashboard.bot_history', bot_id=bot.id) }}" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+    <input class="field" style="width:240px;" type="text" name="q" placeholder="Tìm theo tên, mã khách..." value="{{ search }}">
+    <select class="field" name="channel" onchange="this.form.submit()">
+      <option value="" {{ "selected" if not channel else "" }}>Tất cả kênh</option>
+      <option value="web_widget" {{ "selected" if channel == "web_widget" else "" }}>Web Widget</option>
+    </select>
+    <button class="btns" type="submit">Lọc</button>
+    <div style="flex-grow:1;"></div>
+    <span style="font-size:12.5px;color:var(--text-soft);">{{ conversations|length }} phiên hội thoại</span>
+  </form>
+
+  <div class="chat-history-wrap">
+    {% if not conversations %}
+      <div style="flex-grow:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:40px;text-align:center;">
+        <div style="font-size:32px;">💬</div>
+        <div style="font-size:15px;font-weight:700;">Chưa có hội thoại nào</div>
+        <div style="font-size:13px;color:var(--text-soft);max-width:360px;">Hội thoại từ Web Widget sẽ xuất hiện ở đây khi khách bắt đầu chat với trợ lý.</div>
+      </div>
+    {% else %}
+      <div class="convlist">
+        {% for c in conversations %}
+          {% set name = display_name(c) %}
+          <a class="convrow {{ 'sel' if selected and c.id == selected.id else '' }}" href="{{ url_for('dashboard.bot_history', bot_id=bot.id, conversation_id=c.id, q=search, channel=channel) }}">
+            <div class="convrow-avatar" style="background:{{ ['#F59E0B','#8B5CF6','#EF4444','#0EA5E9','#16A34A'][c.id % 5] }};">{{ name[:2]|upper }}</div>
+            <div style="flex-grow:1;min-width:0;">
+              <div style="display:flex;justify-content:space-between;"><span style="font-size:13.5px;font-weight:700;">{{ name }}</span><span style="font-size:11px;color:var(--text-faint);">{{ c.created_at.strftime("%H:%M") }}</span></div>
+              <div style="margin-top:5px;">
+                <span class="chip" style="background:{{ 'var(--green-bg)' if c.status == 'open' else '#F3F4F6' }};color:{{ 'var(--green-text)' if c.status == 'open' else 'var(--text-soft)' }};">{{ "Đang mở" if c.status == "open" else c.status }}</span>
+                <span class="chip" style="background:#EFF6FF;color:#2563EB;">{{ c.channel }}</span>
+              </div>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+
+      <div class="chatpane">
+        {% if selected %}
+          <div style="padding:16px 24px;border-bottom:1px solid var(--border);background:#fff;display:flex;align-items:center;gap:12px;">
+            <div class="convrow-avatar" style="background:{{ ['#F59E0B','#8B5CF6','#EF4444','#0EA5E9','#16A34A'][selected.id % 5] }};">{{ display_name(selected)[:2]|upper }}</div>
+            <div style="flex-grow:1;">
+              <div style="font-size:14.5px;font-weight:700;">{{ display_name(selected) }}</div>
+              <div style="font-size:12px;color:var(--text-faint);">{{ selected.channel }} · bắt đầu {{ selected.created_at.strftime("%H:%M, %d/%m/%Y") }}</div>
+            </div>
+          </div>
+          <div style="flex-grow:1;overflow-y:auto;padding:22px 26px;display:flex;flex-direction:column;gap:12px;">
+            {% for m in messages %}
+              {% if m.sender == "customer" %}
+                <div style="display:flex;justify-content:flex-end;"><div style="background:var(--black);color:#fff;border-radius:12px 12px 2px 12px;padding:10px 13px;font-size:13px;max-width:60%;">{{ m.content }}<div style="font-size:10.5px;color:#BFDBFE;margin-top:4px;">{{ m.created_at.strftime("%H:%M") }}</div></div></div>
+              {% else %}
+                <div style="display:flex;gap:8px;"><div style="width:24px;height:24px;border-radius:7px;background:#EC4899;flex-shrink:0;"></div><div style="background:#fff;border:1px solid var(--border);border-radius:12px 12px 12px 2px;padding:10px 13px;font-size:13px;line-height:1.5;max-width:60%;">{{ m.content }}<div style="font-size:10.5px;color:var(--text-faint);margin-top:4px;">{{ m.created_at.strftime("%H:%M") }} {{ "· nhân viên" if m.sender == "staff" else "" }}</div></div></div>
+              {% endif %}
+            {% else %}
+              <div style="text-align:center;color:var(--text-faint);font-size:13px;">Chưa có tin nhắn.</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block footer_left %}
+<a href="{{ url_for('dashboard.bot_publish', bot_id=bot.id) }}" class="btns">← Quay lại: Xuất bản</a>
+{% endblock %}
+{% block footer_right %}
+<a href="{{ url_for('dashboard.index', bot_id=bot.id) }}" class="btnp">Hoàn tất ✓</a>
+{% endblock %}

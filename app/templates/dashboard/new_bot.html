@@ -1,0 +1,30 @@
+{% extends "shell.html" %}
+{% set active_nav = "dashboard" %}
+{% set page_title = "Tạo trợ lý mới" %}
+{% block title %}Tạo trợ lý mới{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+{% endblock %}
+{% block main %}
+<div class="new-bot-wrap">
+  <div class="auth-card" style="max-width:440px;">
+    <h1 class="auth-title" style="text-align:left;">Tạo trợ lý AI mới</h1>
+    <p class="auth-subtitle" style="text-align:left;">Đặt tên cho trợ lý — bạn có thể cấu hình chi tiết sau khi tạo.</p>
+
+    <form method="post" action="{{ url_for('dashboard.new_bot') }}" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field-group">
+        <label class="field-label" for="name">Tên trợ lý</label>
+        <input class="field" type="text" id="name" name="name" placeholder="VD: Trợ lý bán hàng" value="{{ name or '' }}" required autofocus>
+      </div>
+
+      {% if error %}
+        <p class="field-error">{{ error }}</p>
+      {% endif %}
+
+      <button class="primary" type="submit" style="margin-bottom:0;">Tạo trợ lý</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

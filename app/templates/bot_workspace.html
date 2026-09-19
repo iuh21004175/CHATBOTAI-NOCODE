@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bot_workspace.css') }}">
+{% block workspace_extra_css %}{% endblock %}
+{% endblock %}
+{% block content %}
+{% set palette = ['#EC4899', '#0EA5E9', '#8B5CF6', '#F59E0B', '#16A34A'] %}
+{% set bot_color = palette[bot.id % palette|length] %}
+<div class="ws">
+  <header class="ws-topbar">
+    <div class="ws-topbar-left">
+      <a href="{{ url_for('dashboard.index', bot_id=bot.id) }}" class="icobtn" aria-label="Về Bảng điều khiển">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+      </a>
+      <div class="ws-bot-badge" style="background:{{ bot_color }};">{{ bot.name[:2]|upper }}</div>
+      <div class="ws-crumb">
+        <span class="ws-crumb-bot">{{ bot.name }}</span>
+        <svg viewBox="0 0 24 24" width="14" height="14" style="color:var(--text-faint)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        <span class="ws-crumb-step">{{ step_name }}</span>
+      </div>
+    </div>
+    <div class="ws-topbar-right">
+      {% block topbar_actions %}{% endblock %}
+    </div>
+  </header>
+
+  <div class="ws-stepper-wrap">
+    <div class="ws-stepper">
+      {% for n, label, endpoint in [
+        (1, "Thiết lập", "dashboard.bot_setup"),
+        (2, "Cơ sở tri thức", "dashboard.bot_knowledge"),
+        (3, "Xuất bản", "dashboard.bot_publish"),
+        (4, "Lịch sử chat", "dashboard.bot_history"),
+      ] %}
+        <a href="{{ url_for(endpoint, bot_id=bot.id) }}" class="ws-step">
+          <span class="stepcircle {{ 'active' if step == n else ('done' if step > n else '') }}">
+            {% if step > n %}
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            {% else %}{{ n }}{% endif %}
+          </span>
+          <span class="steplabel {{ 'active' if step == n else ('done' if step > n else '') }}">{{ label }}</span>
+        </a>
+        {% if not loop.last %}<div class="ws-step-line {{ 'done' if step > n else '' }}"></div>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <main class="ws-main">
+    {% block main %}{% endblock %}
+  </main>
+
+  <footer class="ws-footer">
+    {% block footer_left %}
+      <a href="{{ url_for('dashboard.index', bot_id=bot.id) }}" class="btns">← Quay lại bảng điều khiển</a>
+    {% endblock %}
+    {% block footer_right %}{% endblock %}
+  </footer>
+</div>
+{% endblock %}
+{% block extra_js %}{% block workspace_extra_js %}{% endblock %}{% endblock %}

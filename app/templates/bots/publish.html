@@ -1,0 +1,305 @@
+{% extends "bot_workspace.html" %}
+{% block title %}Xuất bản — {{ bot.name }}{% endblock %}
+{% block workspace_extra_css %}
+<style>
+.chcard{border:1px solid var(--border);border-radius:14px;padding:18px;background:#fff;display:flex;align-items:center;gap:14px;}
+.chico{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;}
+.chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:28px;}
+.section-title{font-size:15px;font-weight:700;margin:0 0 14px;}
+
+/* ---- Form giao diện chatbox ---- */
+.opt{margin-bottom:22px;}
+.opt:last-of-type{margin-bottom:0;}
+.opt-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;}
+.opt-head .lbl{margin:0;}
+.opt-value{font-size:12px;color:var(--text-soft);font-weight:600;}
+.iconpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:10px;}
+.iconopt{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:10px 6px;border:1.5px solid var(--border);border-radius:12px;background:#fff;position:relative;}
+.iconopt input{position:absolute;opacity:0;pointer-events:none;}
+.iconface{width:40px;height:40px;border-radius:50%;background:var(--pick,var(--black));color:#fff;display:flex;align-items:center;justify-content:center;}
+.iconname{font-size:11.5px;color:var(--text-soft);font-weight:600;}
+.iconopt:hover{border-color:#A7C5EA;}
+.iconopt:has(input:checked){border-color:var(--accent);background:var(--accent-soft);}
+.iconopt:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px;}
+.seg{display:inline-flex;border:1.5px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;}
+.seg label{position:relative;padding:8px 16px;font-size:13px;font-weight:600;color:var(--text-soft);cursor:pointer;border-left:1px solid var(--border);}
+.seg label:first-child{border-left:none;}
+.seg input{position:absolute;opacity:0;pointer-events:none;}
+.seg label:has(input:checked){background:var(--accent-soft);color:var(--accent-dark);}
+.seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:-2px;}
+.swatches{display:flex;flex-wrap:wrap;align-items:center;gap:10px;}
+.swatch{width:30px;height:30px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1.5px var(--border);cursor:pointer;padding:0;}
+.swatch.on{box-shadow:0 0 0 2.5px var(--text);}
+.colorpick{display:flex;align-items:center;gap:8px;margin-left:6px;font-size:12px;color:var(--text-soft);}
+.colorpick input{width:34px;height:30px;padding:0;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;}
+.savebar{display:flex;align-items:center;gap:12px;margin-top:22px;padding-top:18px;border-top:1px solid var(--border);}
+.dirty{font-size:12px;color:var(--amber-text);font-weight:700;visibility:hidden;}
+.dirty.show{visibility:visible;}
+
+/* ---- Khung xem trước trực tiếp ---- */
+.pv-side{width:480px;position:sticky;top:0;}
+.stage{position:relative;height:760px;border-radius:16px;border:1px solid var(--border);background:#F1F5F9;overflow:hidden;}
+.stage-bar{height:30px;background:#E2E8F0;display:flex;align-items:center;gap:6px;padding:0 12px;}
+.stage-bar i{width:9px;height:9px;border-radius:50%;background:#CBD5E1;}
+.stage-page{padding:22px;}
+.stage-page b{display:block;height:14px;border-radius:6px;background:#E2E8F0;margin-bottom:10px;}
+.stage-page b.h{width:45%;height:20px;background:#CBD5E1;margin-bottom:16px;}
+.pv-actions{display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:10px;}
+@media (max-width:1100px){.pv-side{width:100%;position:static;}.stage{height:640px;}}
+</style>
+{% endblock %}
+{% block topbar_actions %}
+{% if settings.widget_domain %}
+  <div class="plan-badge plan-free" style="border-color:#A7F3D0;">1 kênh đang hoạt động</div>
+{% endif %}
+{% endblock %}
+{% block main %}
+<div class="ws-layout">
+  <div class="ws-layout-main">
+
+    <div>
+      <div class="section-title">Kênh kết nối</div>
+      <div class="chgrid" style="margin-bottom:0;">
+        <div class="chcard">
+          <div class="chico" style="background:var(--black);">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          </div>
+          <div style="flex-grow:1;">
+            <div style="font-size:14px;font-weight:700;">Web Widget</div>
+            {% if settings.widget_domain %}
+              <span class="badge" style="background:var(--green-bg);color:var(--green-text);">● Đã kết nối</span>
+            {% else %}
+              <span class="badge" style="background:#F3F4F6;color:var(--text-soft);">Chưa cấu hình domain</span>
+            {% endif %}
+          </div>
+        </div>
+
+        {% for name, color, icon in [
+          ("Facebook Messenger", "#1877F2", "M12 2C6.5 2 2 6.1 2 11.2c0 2.9 1.5 5.5 3.8 7.2V22l3.5-1.9c.9.2 1.8.4 2.7.4 5.5 0 10-4.1 10-9.2S17.5 2 12 2z"),
+          ("Zalo OA", "#0068FF", "M12 2C6.5 2 2 6.1 2 11.2c0 2.9 1.5 5.5 3.8 7.2V22l3.5-1.9c.9.2 1.8.4 2.7.4 5.5 0 10-4.1 10-9.2S17.5 2 12 2z"),
+          ("WhatsApp Business", "#25D366", "M20 3.9A10 10 0 0 0 3.5 17L2 22l5.1-1.4A10 10 0 1 0 20 3.9zM12 20a8 8 0 0 1-4.1-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8 8 0 1 1 12 20z"),
+        ] %}
+          <div class="chcard">
+            <div class="chico" style="background:{{ color }};"><svg viewBox="0 0 24 24" width="20" height="20" fill="#fff"><path d="{{ icon }}"></path></svg></div>
+            <div style="flex-grow:1;">
+              <div style="font-size:14px;font-weight:700;">{{ name }}</div>
+              <span class="badge" style="background:#F3F4F6;color:var(--text-soft);">Đang phát triển</span>
+            </div>
+            <button class="btns" type="button" disabled title="Đang phát triển">Kết nối</button>
+          </div>
+        {% endfor %}
+
+        <div class="chcard">
+          <div class="chico" style="background:linear-gradient(135deg,#F58529,#DD2A7B,#8134AF);"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.5" cy="6.5" r="1"></circle></svg></div>
+          <div style="flex-grow:1;">
+            <div style="font-size:14px;font-weight:700;">Instagram</div>
+            <span class="badge" style="background:#F3F4F6;color:var(--text-soft);">Đang phát triển</span>
+          </div>
+          <button class="btns" type="button" disabled title="Đang phát triển">Kết nối</button>
+        </div>
+
+        <div class="chcard">
+          <div class="chico" style="background:#000;"><svg viewBox="0 0 24 24" width="18" height="18" fill="#fff"><path d="M16.6 5.8a4.3 4.3 0 0 1-3.4-4.2h-3.1v14.6a2.6 2.6 0 1 1-1.8-2.5V10.5a5.8 5.8 0 1 0 4.9 5.7V9.4a7.3 7.3 0 0 0 4.1 1.3V7.6a4.3 4.3 0 0 1-.7-1.8z"></path></svg></div>
+          <div style="flex-grow:1;">
+            <div style="font-size:14px;font-weight:700;">TikTok</div>
+            <span class="badge" style="background:#F3F4F6;color:var(--text-soft);">Đang phát triển</span>
+          </div>
+          <button class="btns" type="button" disabled title="Đang phát triển">Kết nối</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Nhúng vào website (Web Widget)</div>
+      <div class="card" style="display:flex;gap:20px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:280px;">
+          <form method="post" action="{{ url_for('dashboard.bot_publish', bot_id=bot.id) }}" style="margin-bottom:16px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="lbl" for="widget_domain">Domain website được phép nhúng widget</label>
+            <div style="display:flex;gap:8px;">
+              <input class="field" type="text" id="widget_domain" name="widget_domain" placeholder="vd: shopabc.vn" value="{{ settings.widget_domain or '' }}">
+              <button class="btnp" type="submit" style="white-space:nowrap;">Lưu domain</button>
+            </div>
+            <div class="hint">Widget chỉ chấp nhận request từ domain này và các subdomain của nó (chống nhúng trái phép ở website khác). Chưa lưu domain thì widget không hiển thị. Thử ở máy local: nhập <code>localhost</code>.</div>
+          </form>
+
+          <div style="font-size:13px;color:var(--text-soft);margin-bottom:10px;">Dán đoạn mã sau vào trước thẻ <code>&lt;/body&gt;</code> của website để hiển thị khung chat.</div>
+          <div id="embed-code" style="background:#0F172A;color:#E2E8F0;border-radius:10px;padding:14px 16px;font-family:monospace;font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre;">&lt;script src="{{ embed_src }}" data-bot-id="{{ bot.id }}"&gt;&lt;/script&gt;</div>
+        </div>
+        <div style="width:150px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;">
+          <button class="btnp" type="button" id="copy-embed-btn" style="justify-content:center;">Sao chép mã</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Giao diện chatbox</div>
+      <form class="card" id="appearance-form" method="post" action="{{ url_for('dashboard.bot_publish_appearance', bot_id=bot.id) }}" style="--pick:{{ appearance.color|lower }};">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="opt">
+          <div class="opt-head"><span class="lbl">Icon nút chat</span></div>
+          <div class="iconpick">
+            {% for key, markup in widget_icons.items() %}
+            <label class="iconopt">
+              <input type="radio" name="widget_icon" value="{{ key }}" {{ "checked" if key == appearance.icon else "" }}>
+              <span class="iconface"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" fill-rule="evenodd">{{ markup|safe }}</svg></span>
+              <span class="iconname">{{ widget_icon_labels[key] }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="opt">
+          <div class="opt-head"><span class="lbl">Màu chủ đạo</span></div>
+          <div class="swatches">
+            {% for c in color_presets %}
+            <button type="button" class="swatch {{ 'on' if c|lower == appearance.color|lower else '' }}" data-color="{{ c|lower }}" style="background:{{ c }};" aria-label="Màu {{ c }}"></button>
+            {% endfor %}
+            <label class="colorpick">Tùy chọn <input type="color" id="widget_color" name="widget_color" value="{{ appearance.color|lower }}"></label>
+          </div>
+          <div class="hint">Áp dụng cho nút chat, thanh tiêu đề, tin nhắn của khách và nút Gửi. Nên chọn màu đậm để chữ trắng dễ đọc.</div>
+        </div>
+
+        <div class="opt">
+          <div class="opt-head"><label class="lbl" for="widget_size">Kích thước nút chat</label><span class="opt-value"><span id="size-value">{{ appearance.size }}</span> px</span></div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:11px;color:var(--text-faint);">{{ size_min }}</span>
+            <input type="range" id="widget_size" name="widget_size" min="{{ size_min }}" max="{{ size_max }}" step="2" value="{{ appearance.size }}" style="flex-grow:1;accent-color:var(--black);">
+            <span style="font-size:11px;color:var(--text-faint);">{{ size_max }}</span>
+          </div>
+        </div>
+
+        <div class="opt">
+          <div class="opt-head"><span class="lbl">Kiểu nút</span></div>
+          <div class="seg" role="radiogroup" aria-label="Kiểu nút">
+            {% for key, label in shapes.items() %}
+            <label><input type="radio" name="widget_shape" value="{{ key }}" {{ "checked" if key == appearance.shape else "" }}>{{ label }}</label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="opt">
+          <div class="opt-head"><span class="lbl">Vị trí trên website</span></div>
+          <div class="seg" role="radiogroup" aria-label="Vị trí">
+            {% for key, label in positions.items() %}
+            <label><input type="radio" name="widget_position" value="{{ key }}" {{ "checked" if key == appearance.position else "" }}>{{ label }}</label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="opt">
+          <div class="opt-head"><span class="lbl">Kích thước khung chat</span></div>
+          <div class="seg" role="radiogroup" aria-label="Kích thước khung chat">
+            {% for key, (label, w, h) in windows.items() %}
+            <label><input type="radio" name="widget_window" value="{{ key }}" data-w="{{ w }}" data-h="{{ h }}" {{ "checked" if key == appearance.window else "" }}>{{ label }} <span style="font-weight:400;opacity:.7;">{{ w }}×{{ h }}</span></label>
+            {% endfor %}
+          </div>
+          <div class="hint">Tên, lời chào và ngôn ngữ của chatbox được chỉnh ở Bước 1 — Thiết lập.</div>
+        </div>
+
+        <div class="savebar">
+          <button class="btnp" type="submit">Lưu giao diện</button>
+          <span class="dirty" id="dirty-note">● Có thay đổi chưa lưu</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="ws-layout-side pv-side">
+    <div class="preview-label">XEM TRƯỚC TRỰC TIẾP</div>
+    <div class="stage" id="chat-stage">
+      <div class="stage-bar"><i></i><i></i><i></i></div>
+      <div class="stage-page"><b class="h"></b><b style="width:90%"></b><b style="width:80%"></b><b style="width:86%"></b><b style="width:60%"></b></div>
+    </div>
+    <div class="pv-actions">
+      <span class="hint" style="margin:0;">Khung này chạy đúng mã widget thật: chỉnh bất kỳ tùy chọn nào ở bên trái là đổi ngay. Chat thử trả lời theo cấu hình <b>đã lưu</b>, không lưu vào Lịch sử chat.</span>
+      <button class="btns" type="button" id="pv-reset" style="white-space:nowrap;">↺ Làm mới</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block footer_left %}
+<a href="{{ url_for('dashboard.bot_knowledge', bot_id=bot.id) }}" class="btns">← Quay lại: Cơ sở tri thức</a>
+{% endblock %}
+{% block footer_right %}
+<a href="{{ url_for('dashboard.bot_history', bot_id=bot.id) }}" class="btnp">Tiếp theo: Lịch sử chat →</a>
+{% endblock %}
+{% block workspace_extra_js %}
+{# Cùng file embed.js với website khách; ?v= tránh dính cache khi embed.js được cập nhật #}
+<script src="{{ url_for('widget.embed_script') }}?v={{ embed_version }}"></script>
+<script>
+(function () {
+  var form = document.getElementById('appearance-form');
+  var stage = document.getElementById('chat-stage');
+  var colorInput = document.getElementById('widget_color');
+  var sizeInput = document.getElementById('widget_size');
+  var sizeValue = document.getElementById('size-value');
+  var swatches = document.querySelectorAll('.swatch');
+  var dirtyNote = document.getElementById('dirty-note');
+
+  // Đọc TOÀN BỘ trạng thái form thành cấu hình widget — mọi ô trong form đều đi qua đây,
+  // nên ô nào đổi thì khung xem trước đổi theo (icon lấy markup ngay từ ô đang chọn).
+  function collect() {
+    var data = new FormData(form);
+    var icon = form.querySelector('input[name="widget_icon"]:checked');
+    var win = form.querySelector('input[name="widget_window"]:checked');
+    return {
+      icon: icon.parentNode.querySelector('svg').innerHTML,
+      color: data.get('widget_color'),
+      size: parseInt(data.get('widget_size'), 10),
+      shape: data.get('widget_shape'),
+      position: data.get('widget_position'),
+      window: { w: parseInt(win.dataset.w, 10), h: parseInt(win.dataset.h, 10) }
+    };
+  }
+
+  var savedState = JSON.stringify(collect());
+
+  // Khung xem trước = widget thật, đặt trong khung giả lập trang web
+  var widget = AIChatbotWidget.create({{ widget_config|tojson }}, {
+    container: stage,
+    open: true,
+    send: function (text, history) {
+      return AIChatbotWidget.postJson(
+        '{{ url_for("dashboard.bot_preview_chat", bot_id=bot.id) }}',
+        { message: text, history: history.map(function (m) { return { role: m.role === 'user' ? 'customer' : 'bot', content: m.content }; }) },
+        { 'X-CSRF-Token': '{{ csrf_token }}' }
+      );
+    }
+  });
+
+  function sync() {
+    var state = collect();
+    widget.update(state);
+    sizeValue.textContent = state.size;
+    form.style.setProperty('--pick', state.color);
+    swatches.forEach(function (s) { s.classList.toggle('on', s.dataset.color === String(state.color).toLowerCase()); });
+    dirtyNote.classList.toggle('show', JSON.stringify(state) !== savedState);
+  }
+
+  form.addEventListener('input', sync);
+  form.addEventListener('change', sync);
+  swatches.forEach(function (s) {
+    s.addEventListener('click', function () {
+      colorInput.value = s.dataset.color;
+      colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  });
+  document.getElementById('pv-reset').addEventListener('click', function () { widget.reset(); });
+  window.addEventListener('resize', function () { widget.update({}); });
+  sync();
+
+  var btn = document.getElementById('copy-embed-btn');
+  var code = document.getElementById('embed-code');
+  btn.addEventListener('click', function () {
+    navigator.clipboard.writeText(code.textContent).then(function () {
+      var original = btn.textContent;
+      btn.textContent = 'Đã sao chép ✓';
+      setTimeout(function () { btn.textContent = original; }, 1500);
+    });
+  });
+})();
+</script>
+{% endblock %}

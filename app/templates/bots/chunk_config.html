@@ -1,0 +1,150 @@
+{% extends "bot_workspace.html" %}
+{% block title %}Cấu hình chunk — {{ document.filename }}{% endblock %}
+{% block workspace_extra_css %}
+<style>
+.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.cc-stats{display:flex;flex-wrap:wrap;gap:6px 26px;margin-top:16px;font-size:13px;color:var(--text-soft);}
+.cc-stats b{color:var(--text);}
+.cc-preview{margin-top:22px;border:1px solid var(--border);border-radius:14px;background:#fff;padding:16px;}
+.cc-chunk{border-radius:10px;padding:10px 14px;margin-bottom:8px;position:relative;}
+.cc-chunk:last-child{margin-bottom:0;}
+.cc-chunk-head{font-size:11px;font-weight:700;color:rgba(15,23,42,.55);margin-bottom:4px;}
+.cc-chunk-body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;color:#0F172A;}
+.cc-c0{background:#DBEAFE;}.cc-c1{background:#FEF9C3;}.cc-c2{background:#FCE7F3;}
+.cc-c3{background:#DCFCE7;}.cc-c4{background:#FFEDD5;}.cc-c5{background:#EDE9FE;}
+.cc-note{padding:22px;text-align:center;color:var(--text-soft);font-size:13.5px;}
+.cc-error{padding:12px 16px;border-radius:10px;background:var(--error-bg);color:var(--error-text);font-size:13px;font-weight:600;}
+.cc-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;flex-wrap:wrap;}
+</style>
+{% endblock %}
+{% block topbar_actions %}{% endblock %}
+{% block main %}
+<div class="ws-container">
+  <form method="post" action="{{ url_for('dashboard.bot_document_train', bot_id=bot.id, document_id=document.id) }}" class="card" id="chunk-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="card-title" style="margin-bottom:6px;">Cấu hình chunk — {{ document.filename }}</div>
+    <div class="hint" style="margin:0 0 14px;">Tài liệu đã được chuẩn hóa sang markdown và cắt theo tiêu đề, gom nguyên đoạn/bảng vào cùng một chunk; chỉ cắt giữa đoạn khi đoạn đó dài hơn kích thước chunk. Mỗi màu là một chunk sẽ được huấn luyện. Cấu hình này chỉ áp dụng cho tệp này.</div>
+    <div class="cc-grid">
+      <div>
+        <label class="lbl" for="chunk_size">Kích thước chunk (token)</label>
+        <input class="field" type="number" id="chunk_size" name="chunk_size" min="{{ chunk_size_min }}" max="{{ chunk_size_max }}" step="10" value="{{ chunk_size }}" required>
+        <div class="hint">Từ {{ chunk_size_min }} đến {{ chunk_size_max }}. Nhỏ: trả lời chính xác hơn; lớn: giữ đủ ngữ cảnh hơn.</div>
+      </div>
+      <div>
+        <label class="lbl" for="chunk_overlap">Overlap chunk (token)</label>
+        <input class="field" type="number" id="chunk_overlap" name="chunk_overlap" min="0" max="{{ (chunk_size * overlap_max_percent) // 100 }}" step="5" value="{{ chunk_overlap }}" required>
+        <div class="hint">Tối đa <span id="overlap-max">{{ (chunk_size * overlap_max_percent) // 100 }}</span> ({{ overlap_max_percent }}% kích thước chunk). Phần lặp lại giữa hai chunk liền kề.</div>
+      </div>
+    </div>
+    <div class="cc-stats" id="cc-stats" aria-live="polite">
+      <span>Tổng ký tự: <b id="st-chars">—</b></span>
+      <span>Số chunk: <b id="st-count">—</b></span>
+      <span>Token trung bình/chunk: <b id="st-avg">—</b></span>
+    </div>
+    <div class="cc-actions">
+      <a class="btns" href="{{ url_for('dashboard.bot_knowledge', bot_id=bot.id) }}">Để sau</a>
+      <button type="submit" class="btnp" id="train-btn" disabled>Lưu cấu hình &amp; huấn luyện</button>
+    </div>
+  </form>
+
+  <div class="cc-preview" id="cc-preview"><div class="cc-note">Đang cắt chunk…</div></div>
+</div>
+{% endblock %}
+{% block footer_left %}<a href="{{ url_for('dashboard.bot_knowledge', bot_id=bot.id) }}" class="btns">← Quay lại: Cơ sở tri thức</a>{% endblock %}
+{% block workspace_extra_js %}
+<script>
+(function () {
+  var PREVIEW_URL = '{{ url_for("dashboard.bot_document_chunks_preview", bot_id=bot.id, document_id=document.id) }}';
+  var CSRF = '{{ csrf_token }}';
+  var OVERLAP_PERCENT = {{ overlap_max_percent }};
+  var COLORS = 6;
+
+  var sizeInput = document.getElementById('chunk_size');
+  var overlapInput = document.getElementById('chunk_overlap');
+  var overlapMax = document.getElementById('overlap-max');
+  var trainBtn = document.getElementById('train-btn');
+  var preview = document.getElementById('cc-preview');
+  var stChars = document.getElementById('st-chars');
+  var stCount = document.getElementById('st-count');
+  var stAvg = document.getElementById('st-avg');
+
+  function fmtNum(n) { return String(n || 0).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
+  function note(className, text) {
+    preview.textContent = '';
+    var node = document.createElement('div');
+    node.className = className;
+    node.textContent = text;
+    preview.appendChild(node);
+  }
+
+  function resetStats() { stChars.textContent = stCount.textContent = stAvg.textContent = '—'; }
+
+  function render(data) {
+    stChars.textContent = fmtNum(data.characters);
+    stCount.textContent = fmtNum(data.count);
+    stAvg.textContent = fmtNum(data.average_tokens);
+    if (!data.chunks.length) { note('cc-note', 'Tài liệu không có nội dung để tạo chunk.'); return; }
+    var frag = document.createDocumentFragment();
+    data.chunks.forEach(function (c) {
+      var box = document.createElement('div');
+      box.className = 'cc-chunk cc-c' + ((c.index - 1) % COLORS);
+      var head = document.createElement('div');
+      head.className = 'cc-chunk-head';
+      head.textContent = 'Chunk ' + c.index + ' · ' + fmtNum(c.tokens) + ' token';
+      var body = document.createElement('div');
+      body.className = 'cc-chunk-body';
+      body.textContent = c.content;  // textContent: nội dung tài liệu không bao giờ được diễn giải thành HTML
+      box.appendChild(head);
+      box.appendChild(body);
+      frag.appendChild(box);
+    });
+    preview.textContent = '';
+    preview.appendChild(frag);
+  }
+
+  var timer = null;
+  var requestId = 0;  // chỉ hiển thị phản hồi của lần gọi mới nhất khi người dùng gõ liên tục
+
+  function refresh() {
+    var mine = ++requestId;
+    trainBtn.disabled = true;
+    note('cc-note', 'Đang cắt chunk…');
+    fetch(PREVIEW_URL, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify({ chunk_size: sizeInput.value, chunk_overlap: overlapInput.value })
+    })
+      .then(function (r) { return r.json().then(function (body) { return { ok: r.ok, body: body }; }); })
+      .then(function (res) {
+        if (mine !== requestId) return;
+        if (!res.ok) { resetStats(); note('cc-error', res.body.error || 'Không xem trước được chunk.'); return; }
+        render(res.body);
+        trainBtn.disabled = false;
+      })
+      .catch(function () {
+        if (mine !== requestId) return;
+        resetStats();
+        note('cc-error', 'Không kết nối được máy chủ để xem trước chunk. Hãy thử lại.');
+      });
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    trainBtn.disabled = true;
+    timer = setTimeout(refresh, 400);
+  }
+
+  sizeInput.addEventListener('input', function () {
+    var max = Math.floor((parseInt(sizeInput.value, 10) || 0) * OVERLAP_PERCENT / 100);
+    overlapInput.max = max;
+    overlapMax.textContent = max;
+    schedule();
+  });
+  overlapInput.addEventListener('input', schedule);
+
+  refresh();
+})();
+</script>
+{% endblock %}
