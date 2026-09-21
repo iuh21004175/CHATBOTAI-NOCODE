@@ -13,6 +13,10 @@ WIDGET_ICONS = {
 }
 DEFAULT_ICON = "chat"
 
+# Icon tự tải lên (ảnh, không phải SVG cố định) — xem BotSettings.widget_icon_path và app/widget/appearance.py.
+# Không nằm trong WIDGET_ICONS vì không có markup SVG; mọi nơi xử lý icon đều phải tự kiểm tra khoá này riêng.
+CUSTOM_ICON_KEY = "custom"
+
 # Nhãn hiển thị ở trang Xuất bản
 WIDGET_ICON_LABELS = {
     "chat": "Bong bóng",
@@ -21,4 +25,5 @@ WIDGET_ICON_LABELS = {
     "headset": "Hỗ trợ",
     "sparkle": "AI",
     "help": "Trợ giúp",
+    CUSTOM_ICON_KEY: "Ảnh của bạn",
 }

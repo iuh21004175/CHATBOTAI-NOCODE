@@ -1,27 +1,34 @@
 """Route layer cho các trang sau đăng nhập: Bảng điều khiển, tạo trợ lý mới, và trang tạm
 "đang xây dựng" cho các mục nav/thao tác chưa có màn hình thật.
 """
-from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, Response, abort, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import login_required
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from app.csrf import ensure_csrf_token, verify_csrf_token
+from app.customers import service as customers_service
 from app.widget import appearance, icons
 from app.widget import service as widget_service
 from extensions import limiter
 
-from . import service
+from . import assistant_templates, service
+from .assistant_templates import MAX_INSTRUCTIONS_CHARS
 
 bp = Blueprint("dashboard", __name__)
 bp.add_app_template_filter(service.filesize, "filesize")  # {{ 1536|filesize }} -> "1.5 KB"
+bp.add_app_template_filter(service.format_message, "format_message")  # in đậm/mã an toàn cho tin nhắn hiển thị
 
 
 @bp.errorhandler(RequestEntityTooLarge)
 def upload_too_large(_error):
-    """Request vượt MAX_CONTENT_LENGTH (tổng dung lượng 1 lần tải lên quá lớn) -> báo lỗi thân thiện."""
+    """Request vượt MAX_CONTENT_LENGTH (tổng dung lượng 1 lần tải lên quá lớn) -> báo lỗi thân thiện.
+    Quay lại đúng trang có form vừa gửi (không phải luôn về Cơ sở tri thức — nhiều route có upload)."""
     flash(f"Tổng dung lượng tải lên quá lớn (tối đa {service.filesize(current_app.config['MAX_CONTENT_LENGTH'])} mỗi lần).", "error")
     bot_id = (request.view_args or {}).get("bot_id")
-    return redirect(url_for("dashboard.bot_knowledge", bot_id=bot_id)) if bot_id else ("Payload Too Large", 413)
+    if not bot_id:
+        return "Payload Too Large", 413
+    back_to = "dashboard.bot_publish" if request.endpoint == "dashboard.bot_publish_icon_upload" else "dashboard.bot_knowledge"
+    return redirect(url_for(back_to, bot_id=bot_id))
 
 
 def _require_bot(bot_id: int):
@@ -93,6 +100,67 @@ def placeholder():
     return render_template("placeholder.html", title=title)
 
 
+# ---- Tin nhắn (Inbox) ----
+
+@bp.route("/inbox")
+@login_required
+def inbox():
+    team_id = session.get("team_id")
+    if not team_id:
+        abort(404)
+    return render_template(
+        "inbox/index.html",
+        team=service.get_team(team_id),
+        csrf_token=ensure_csrf_token(),
+        initial_conversation_id=request.args.get("conversation_id", type=int),
+    )
+
+
+# ---- Khách hàng ----
+
+def _customer_filters() -> dict:
+    return {
+        "search": request.args.get("q", "").strip(),
+        "channel": request.args.get("channel", ""),
+        "stage": request.args.get("stage", ""),
+        "status": request.args.get("status", ""),
+    }
+
+
+@bp.route("/customers")
+@login_required
+def customers():
+    team_id = session.get("team_id")
+    if not team_id:
+        abort(404)
+    filters = _customer_filters()
+    result = customers_service.list_customers(team_id, page=request.args.get("page", 1, type=int), **filters)
+    return render_template(
+        "customers/index.html",
+        team=service.get_team(team_id),
+        filters=filters,
+        channel_options=customers_service.channel_options(team_id),
+        stages=customers_service.STAGES,
+        statuses=customers_service.STATUS_LABELS,
+        csrf_token=ensure_csrf_token(),
+        **result,
+    )
+
+
+@bp.route("/customers/export.csv")
+@login_required
+def customers_export():
+    team_id = session.get("team_id")
+    if not team_id:
+        abort(404)
+    content = customers_service.export_csv(team_id, **_customer_filters())
+    return Response(
+        content,
+        mimetype="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="khach-hang.csv"'},
+    )
+
+
 # ---- Bước 1: Thiết lập ----
 
 @bp.route("/bots/<int:bot_id>/setup", methods=["GET", "POST"])
@@ -106,15 +174,25 @@ def bot_setup(bot_id):
             flash("Phiên làm việc đã hết hạn, vui lòng thử lại.", "error")
         elif not request.form.get("name", "").strip():
             flash("Vui lòng nhập tên trợ lý.", "error")
+        elif len(service.clean_instructions(request.form.get("instructions"))) > MAX_INSTRUCTIONS_CHARS:
+            flash(f"Chỉ dẫn tối đa {MAX_INSTRUCTIONS_CHARS} ký tự.", "error")
         else:
             service.update_bot_setup(bot, settings, request.form)
             flash("Đã lưu thay đổi.", "success")
             return redirect(url_for("dashboard.bot_setup", bot_id=bot.id))
 
+    from core import rag_engine
+
     return render_template(
         "bots/setup.html",
         bot=bot,
         settings=settings,
+        min_similarity=rag_engine.normalize_min_similarity(settings.min_similarity),
+        min_similarity_min=rag_engine.MIN_SIMILARITY_MIN,
+        min_similarity_max=rag_engine.MIN_SIMILARITY_MAX,
+        template_list=assistant_templates.TEMPLATES,
+        template_data=assistant_templates.client_data(),
+        instructions_max=MAX_INSTRUCTIONS_CHARS,
         step=1,
         step_name="Thiết lập",
         csrf_token=ensure_csrf_token(),
@@ -146,6 +224,27 @@ def bot_preview_chat(bot_id):
     return jsonify(reply=reply)
 
 
+@bp.route("/bots/<int:bot_id>/setup/optimize-instructions", methods=["POST"])
+@login_required
+@limiter.limit("10 per minute")
+def bot_optimize_instructions(bot_id):
+    """Nút "Tối ưu" ở Bước 1: nhờ LLM viết lại chỉ dẫn đang soạn (chưa lưu) cho rõ ràng, có cấu trúc."""
+    bot = _require_bot(bot_id)
+    if not verify_csrf_token(request.headers.get("X-CSRF-Token", "")):
+        return jsonify(error="Phiên làm việc đã hết hạn, vui lòng tải lại trang."), 400
+    text = (request.get_json(silent=True) or {}).get("instructions")
+    if not isinstance(text, str) or not service.clean_instructions(text):
+        return jsonify(error="Chưa có chỉ dẫn để tối ưu."), 400
+    text = service.clean_instructions(text)
+    if len(text) > MAX_INSTRUCTIONS_CHARS:
+        return jsonify(error=f"Chỉ dẫn tối đa {MAX_INSTRUCTIONS_CHARS} ký tự."), 400
+    try:
+        return jsonify(instructions=service.optimize_instructions(text))
+    except Exception:
+        current_app.logger.exception("optimize-instructions lỗi (bot_id=%s)", bot.id)
+        return jsonify(error="Không tối ưu được chỉ dẫn lúc này. Kiểm tra DEEPSEEK_API_KEY rồi thử lại."), 502
+
+
 # ---- Bước 3: Xuất bản ----
 
 @bp.route("/bots/<int:bot_id>/publish", methods=["GET", "POST"])
@@ -172,6 +271,9 @@ def bot_publish(bot_id):
         embed_version=widget_service.embed_version(),
         widget_icons=icons.WIDGET_ICONS,
         widget_icon_labels=icons.WIDGET_ICON_LABELS,
+        custom_icon_key=icons.CUSTOM_ICON_KEY,
+        custom_icon_url=widget_service.icon_url(bot, settings),  # None nếu chưa từng tải icon
+        max_icon_mb=service.MAX_ICON_MB,
         color_presets=appearance.COLOR_PRESETS,
         size_min=appearance.SIZE_MIN,
         size_max=appearance.SIZE_MAX,
@@ -194,6 +296,18 @@ def bot_publish_appearance(bot_id):
     else:
         error = service.update_widget_appearance(service.get_or_create_settings(bot), request.form)
         flash(error or "Đã lưu giao diện widget. Website đã nhúng sẽ cập nhật sau tối đa vài phút.", "error" if error else "success")
+    return redirect(url_for("dashboard.bot_publish", bot_id=bot.id))
+
+
+@bp.route("/bots/<int:bot_id>/publish/icon", methods=["POST"])
+@login_required
+def bot_publish_icon_upload(bot_id):
+    bot = _require_bot(bot_id)
+    if not verify_csrf_token(request.form.get("csrf_token", "")):
+        flash("Phiên làm việc đã hết hạn, vui lòng thử lại.", "error")
+    else:
+        error = service.update_widget_icon(bot, service.get_or_create_settings(bot), request.files.get("icon_file"))
+        flash(error or "Đã cập nhật icon.", "error" if error else "success")
     return redirect(url_for("dashboard.bot_publish", bot_id=bot.id))
 
 

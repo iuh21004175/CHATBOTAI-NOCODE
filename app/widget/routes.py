@@ -4,7 +4,7 @@ Không chứa logic nghiệp vụ — logic đặt ở service.py.
 API công khai (không đăng nhập) nên bảo vệ bằng: domain được phép nhúng (kiểm tra header Origin),
 CORS chỉ mở cho đúng origin đó, giới hạn tần suất theo IP, giới hạn độ dài tin nhắn.
 """
-from flask import Blueprint, Response, current_app, jsonify, request
+from flask import Blueprint, Response, abort, current_app, jsonify, request
 
 from extensions import limiter
 
@@ -44,6 +44,21 @@ def embed_script():
     )
 
 
+@bp.route("/api/<int:bot_id>/icon", methods=["GET"])
+def widget_icon(bot_id):
+    """Ảnh icon tự tải lên (Bước 3), public như embed.js — không gác bằng domain: <img> tải cross-site
+    không gửi Origin đáng tin cậy (Referrer-Policy nhiều trình duyệt/site đã tắt Referer), gác nhầm sẽ
+    làm icon không hiển thị ngay trên chính domain đã cấu hình. Ảnh không nhạy cảm nên không cần gác."""
+    bot = service.get_bot(bot_id)
+    if bot is None:
+        abort(404)
+    result = service.icon_bytes(bot)
+    if result is None:
+        abort(404)
+    raw, content_type = result
+    return Response(raw, mimetype=content_type, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
 @bp.route("/api/<int:bot_id>/config", methods=["GET", "OPTIONS"])
 def widget_config(bot_id):
     bot, origin, error = _authorize(bot_id)
@@ -76,4 +91,22 @@ def receive_message(bot_id):
     except Exception:
         current_app.logger.exception("widget: không trả lời được (bot_id=%s)", bot.id)
         return _with_cors(jsonify(error=service.get_config(bot)["error"]), origin), 502
+    return _with_cors(jsonify(result), origin)
+
+
+@bp.route("/api/<int:bot_id>/staff-messages", methods=["GET", "OPTIONS"])
+@limiter.limit("60 per minute", methods=["GET"])
+def staff_messages(bot_id):
+    """Widget hỏi định kỳ: tin nhân viên trả lời từ Inbox (đúng bot + đúng visitor mới đọc được)."""
+    bot, origin, error = _authorize(bot_id)
+    if error:
+        return error
+    if request.method == "OPTIONS":
+        return _with_cors(Response(status=204), origin)
+    result = service.staff_messages_since(
+        bot,
+        request.args.get("conversation_id", type=int),
+        request.args.get("visitor_id", ""),
+        request.args.get("after_id", 0, type=int),
+    )
     return _with_cors(jsonify(result), origin)

@@ -22,7 +22,7 @@
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></svg>
         Bảng điều khiển
       </a>
-      <a class="navitem {{ 'active' if active_nav == 'inbox' else '' }}" href="{{ url_for('dashboard.placeholder', title='Tin nhắn (Inbox)') }}">
+      <a class="navitem {{ 'active' if active_nav == 'inbox' else '' }}" href="{{ url_for('dashboard.inbox') }}">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
         Tin nhắn
       </a>
@@ -30,7 +30,7 @@
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
         FollowUP
       </a>
-      <a class="navitem {{ 'active' if active_nav == 'customers' else '' }}" href="{{ url_for('dashboard.placeholder', title='Quản lý khách hàng') }}">
+      <a class="navitem {{ 'active' if active_nav == 'customers' else '' }}" href="{{ url_for('dashboard.customers') }}">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
         Khách hàng
       </a>

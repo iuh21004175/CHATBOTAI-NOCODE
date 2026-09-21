@@ -1,5 +1,59 @@
 {% extends "bot_workspace.html" %}
 {% block title %}Thiết lập — {{ bot.name }}{% endblock %}
+{% block workspace_extra_css %}
+<style>
+/* ---- Chọn mẫu trợ lý ---- */
+.tpl-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;}
+.tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;}
+.tpl{display:flex;flex-direction:column;gap:10px;text-align:left;padding:16px;border:1.5px solid var(--border);border-radius:12px;background:#fff;cursor:pointer;font-family:inherit;color:var(--text);min-width:0;}
+.tpl:hover{border-color:#A7C5EA;}
+.tpl[aria-pressed="true"]{border-color:var(--text);box-shadow:0 0 0 1px var(--text) inset;}
+.tpl:focus-visible,.ed-btn:focus-visible,.btn-opt:focus-visible,.ins-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.tpl-top{display:flex;align-items:center;gap:10px;min-width:0;}
+.tpl-ico{width:36px;height:36px;border-radius:10px;background:#F1F5F9;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text);}
+.tpl-name{font-size:14.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tpl-desc{font-size:12.5px;line-height:1.5;color:var(--text-soft);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.tpl-collapse{border-style:dashed;align-items:center;justify-content:center;text-align:center;background:transparent;}
+.tpl-collapse .tpl-name{font-size:14px;}
+.tpl-note{margin-top:14px;padding:10px 14px;border-radius:10px;background:var(--accent-soft);color:var(--accent-dark);font-size:12.5px;font-weight:600;}
+.tpl-grid[hidden],.tpl-note[hidden]{display:none;}
+
+/* ---- Khung chỉ dẫn (trình soạn markdown) ---- */
+.ins-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.ins-head .card-title{margin:0;}
+.ins-toggle{width:32px;height:32px;border:none;background:transparent;border-radius:8px;color:var(--text-soft);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.ins-toggle svg{transition:transform .15s;}
+.ins-toggle[aria-expanded="false"] svg{transform:rotate(180deg);}
+.ins-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
+.ins-bar .lbl{display:inline;margin:0 10px 0 0;}
+.counter{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid #FDE68A;background:#FEF9C3;color:#854D0E;}
+.counter.ok{border-color:var(--border);background:#F8FAFC;color:var(--text-soft);}
+.counter.warn{border-color:#FDBA74;background:var(--amber-bg);color:var(--amber-text);}
+.counter.over{border-color:var(--error-border);background:var(--error-bg);color:var(--error-text);}
+.btn-opt{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border:none;border-radius:10px;background:var(--text);color:#fff;font-size:13.5px;font-weight:700;font-family:inherit;cursor:pointer;}
+.btn-opt:hover{background:#1E293B;}
+.btn-opt:disabled{opacity:.6;cursor:wait;}
+.ed{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff;}
+.ed-tools{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:8px 10px;background:#F6F7F9;border-bottom:1px solid var(--border);}
+.ed-tools select{height:34px;padding:0 6px;border:1px solid var(--border);border-radius:8px;background:#fff;font-size:13px;font-weight:700;font-family:inherit;margin-right:6px;cursor:pointer;}
+.ed-btn{width:34px;height:34px;border:none;background:transparent;border-radius:8px;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;}
+.ed-btn:hover{background:#E8ECF2;}
+.ed-btn b,.ed-btn i{font-size:15px;line-height:1;}
+.ed-area{display:flex;height:320px;min-height:200px;max-height:720px;resize:vertical;overflow:hidden;position:relative;}
+.ed-gutter{width:48px;flex-shrink:0;overflow:hidden;border-right:1px solid var(--border);background:#fff;color:#8A94A6;user-select:none;}
+.ed-gutter-in{padding:12px 10px 12px 0;text-align:right;font:13px/22px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;will-change:transform;}
+.ed-wrap{position:relative;flex:1;min-width:0;}
+.ed-wrap textarea,.ed-mirror{font:13px/22px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:12px 14px;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:2;}
+.ed-wrap textarea{width:100%;height:100%;border:0;outline:none;resize:none;display:block;background:transparent;color:var(--text);}
+.ed-mirror{position:absolute;top:0;left:0;visibility:hidden;pointer-events:none;}
+.ed-msg{margin-top:10px;font-size:12.5px;font-weight:600;}
+.ed-msg.err{color:var(--error-text);}
+.ed-msg.ok{color:var(--green-text);}
+.ed-msg button{border:none;background:none;color:var(--accent-dark);font-weight:700;font-family:inherit;cursor:pointer;text-decoration:underline;padding:0 0 0 6px;}
+[hidden]{display:none !important;}
+@media (max-width:640px){.ins-bar{flex-wrap:wrap;}}
+</style>
+{% endblock %}
 {% block topbar_actions %}
 <button type="submit" form="setup-form" class="btnp">
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
@@ -11,6 +65,33 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
   <div class="ws-layout-main">
+    <div class="card" id="tpl-card">
+      <div class="tpl-head">
+        <div>
+          <div class="card-title" style="margin-bottom:4px;">Chọn mẫu trợ lý</div>
+          <div class="hint" style="margin:0;font-size:13.5px;color:var(--text-soft);">Bắt đầu với hành vi agent được cấu hình sẵn.</div>
+        </div>
+        <button type="button" class="btns" id="tpl-show" hidden>Hiện mẫu</button>
+      </div>
+      <div class="tpl-grid" id="tpl-grid">
+        {% for t in template_list %}
+        <button type="button" class="tpl" data-key="{{ t.key }}" aria-pressed="false">
+          <span class="tpl-top">
+            <span class="tpl-ico"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ t.icon|safe }}</svg></span>
+            <span class="tpl-name" title="{{ t.name }}">{{ t.name }}</span>
+          </span>
+          <span class="tpl-desc">{{ t.description }}</span>
+        </button>
+        {% endfor %}
+        <button type="button" class="tpl tpl-collapse" id="tpl-hide">
+          <span class="tpl-ico"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></span>
+          <span class="tpl-name">Thu gọn</span>
+          <span class="tpl-desc">Ẩn mẫu</span>
+        </button>
+      </div>
+      <div class="tpl-note" id="tpl-note" role="status" hidden></div>
+    </div>
+
     <div class="card">
       <div style="display:flex;gap:16px;align-items:center;margin-bottom:20px;">
         <div style="width:64px;height:64px;border-radius:16px;background:#EC4899;color:#fff;font-size:20px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ bot.name[:2]|upper }}</div>
@@ -20,16 +101,59 @@
         </div>
       </div>
       <label class="lbl" for="greeting">Lời chào đầu tiên</label>
-      <textarea class="field" id="greeting" name="greeting" rows="2" style="resize:vertical;margin-bottom:16px;">{{ settings.greeting or "" }}</textarea>
-      <label class="lbl" for="instructions">Hướng dẫn &amp; tính cách</label>
-      <textarea class="field" id="instructions" name="instructions" rows="4" style="resize:vertical;">{{ settings.instructions or "" }}</textarea>
-      <div class="hint">Nội dung này giúp AI hiểu vai trò và cách xưng hô khi trò chuyện với khách hàng.</div>
+      <textarea class="field" id="greeting" name="greeting" rows="2" style="resize:vertical;">{{ settings.greeting or "" }}</textarea>
       <div class="hint">Muốn xem chatbox trông thế nào và chat thử? Vào <a href="{{ url_for('dashboard.bot_publish', bot_id=bot.id) }}" style="color:var(--accent-dark);font-weight:700;">Bước 3 — Xuất bản</a> (khung xem trước hiển thị tên, lời chào và ngôn ngữ đã lưu ở đây).</div>
+    </div>
+
+    <div class="card" id="ins-card">
+      <div class="ins-head">
+        <div class="card-title">Tùy chỉnh trợ lý của bạn</div>
+        <button type="button" class="ins-toggle" id="ins-toggle" aria-expanded="true" aria-controls="ins-body" aria-label="Thu gọn hoặc mở rộng phần chỉ dẫn">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+        </button>
+      </div>
+      <div id="ins-body">
+        <div class="ins-bar">
+          <div>
+            <label class="lbl" for="instructions">Chỉ dẫn</label><span class="counter" id="ins-count" aria-live="polite">0 / {{ instructions_max }} ký tự</span>
+          </div>
+          <button type="button" class="btn-opt" id="ins-optimize" data-url="{{ url_for('dashboard.bot_optimize_instructions', bot_id=bot.id) }}">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+            <span id="ins-optimize-label">Tối ưu</span>
+          </button>
+        </div>
+        <div class="ed">
+          <div class="ed-tools" role="toolbar" aria-label="Định dạng markdown">
+            <select id="ed-heading" aria-label="Kiểu đoạn">
+              <option value="p">P</option><option value="1">H1</option><option value="2">H2</option><option value="3">H3</option>
+            </select>
+            <button type="button" class="ed-btn" data-cmd="bold" title="Đậm (Ctrl+B)" aria-label="Đậm"><b>B</b></button>
+            <button type="button" class="ed-btn" data-cmd="italic" title="Nghiêng (Ctrl+I)" aria-label="Nghiêng"><i>I</i></button>
+            <button type="button" class="ed-btn" data-cmd="ul" title="Danh sách dấu đầu dòng" aria-label="Danh sách dấu đầu dòng"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg></button>
+            <button type="button" class="ed-btn" data-cmd="ol" title="Danh sách đánh số" aria-label="Danh sách đánh số"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="21" y1="6" y2="6"/><line x1="10" x2="21" y1="12" y2="12"/><line x1="10" x2="21" y1="18" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg></button>
+            <button type="button" class="ed-btn" data-cmd="task" title="Danh sách việc cần làm" aria-label="Danh sách việc cần làm"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg></button>
+            <button type="button" class="ed-btn" data-cmd="link" title="Liên kết" aria-label="Liên kết"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
+            <button type="button" class="ed-btn" data-cmd="quote" title="Trích dẫn" aria-label="Trích dẫn"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="none"><path d="M6.5 10c-.223 0-.437.034-.65.065.069-.232.14-.468.254-.68.114-.308.292-.575.469-.844.148-.291.409-.488.601-.737.201-.242.475-.403.692-.604.213-.21.492-.315.714-.463.232-.133.434-.28.65-.35l.539-.222.474-.197-.485-1.938-.597.144c-.191.048-.424.104-.689.171-.271.05-.56.187-.882.312-.318.142-.686.238-1.028.466-.344.218-.741.4-1.091.692-.339.301-.748.562-1.05.945-.33.358-.656.734-.909 1.162-.293.408-.492.856-.702 1.299-.19.443-.343.896-.468 1.336-.237.882-.343 1.72-.384 2.437-.034.718-.014 1.315.028 1.747.015.204.043.402.063.539l.025.168.026-.006A4.5 4.5 0 1 0 6.5 10zm11 0c-.223 0-.437.034-.65.065.069-.232.14-.468.254-.68.114-.308.292-.575.469-.844.148-.291.409-.488.601-.737.201-.242.475-.403.692-.604.213-.21.492-.315.714-.463.232-.133.434-.28.65-.35l.539-.222.474-.197-.485-1.938-.597.144c-.191.048-.424.104-.689.171-.271.05-.56.187-.882.312-.317.143-.686.238-1.028.467-.344.218-.741.4-1.091.692-.339.301-.748.562-1.05.944-.33.358-.656.734-.909 1.162-.293.408-.492.856-.702 1.299-.19.443-.343.896-.468 1.336-.237.882-.343 1.72-.384 2.437-.034.718-.014 1.315.028 1.747.015.204.043.402.063.539l.025.168.026-.006A4.5 4.5 0 1 0 17.5 10z"/></svg></button>
+            <button type="button" class="ed-btn" data-cmd="code" title="Mã nội dòng" aria-label="Mã nội dòng"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
+            <button type="button" class="ed-btn" data-cmd="codeblock" title="Khối mã" aria-label="Khối mã"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/></svg></button>
+            <button type="button" class="ed-btn" data-cmd="table" title="Bảng" aria-label="Bảng"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg></button>
+          </div>
+          <div class="ed-area" id="ed-area">
+            <div class="ed-gutter" aria-hidden="true"><div class="ed-gutter-in" id="ed-gutter">1</div></div>
+            <div class="ed-wrap">
+              <div class="ed-mirror" id="ed-mirror" aria-hidden="true"></div>
+              <textarea id="instructions" name="instructions" maxlength="{{ instructions_max }}" spellcheck="false" placeholder="Viết chỉ dẫn bằng mã markdown...">{{ settings.instructions or "" }}</textarea>
+            </div>
+          </div>
+        </div>
+        <div class="ed-msg" id="ed-msg" role="status" hidden></div>
+        <div class="hint">Chỉ dẫn giúp AI hiểu vai trò, cách xưng hô và giới hạn khi trò chuyện với khách hàng. Chọn một mẫu ở trên để điền sẵn chỉ dẫn tối ưu, rồi chỉnh sửa theo doanh nghiệp của bạn. Thông tin cụ thể (giá, chính sách...) hãy đưa vào tài liệu ở Bước 2.</div>
+      </div>
     </div>
 
     <div class="card">
       <div class="card-title">Cấu hình mô hình AI</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;">
+      <div style="margin-bottom:18px;">
         <div>
           <label class="lbl" for="language">Ngôn ngữ</label>
           <select class="field" id="language" name="language">
@@ -37,13 +161,6 @@
             <option value="en" {{ "selected" if settings.language == "en" else "" }}>English</option>
           </select>
           <div class="hint">Trợ lý sẽ luôn trả lời bằng ngôn ngữ này, kể cả khi khách hỏi hoặc tài liệu viết bằng ngôn ngữ khác.</div>
-        </div>
-        <div>
-          <label class="lbl" for="ai_model">Mô hình AI</label>
-          <select class="field" id="ai_model" name="ai_model">
-            <option value="deepseek-chat" {{ "selected" if settings.ai_model == "deepseek-chat" else "" }}>DeepSeek-V3</option>
-            <option value="deepseek-reasoner" {{ "selected" if settings.ai_model == "deepseek-reasoner" else "" }}>DeepSeek-R1</option>
-          </select>
         </div>
       </div>
       {# temperature = 0 là giá trị hợp lệ ("Chính xác") — không dùng `or` vì 0.0 bị coi là rỗng #}
@@ -61,6 +178,13 @@
         <span style="font-size:11px;color:var(--text-faint);">1 (Sáng tạo)</span>
       </div>
       <div class="hint">Token đầu ra tối đa giới hạn độ dài câu trả lời của AI (khoảng 1 token ≈ 3–4 ký tự tiếng Việt).</div>
+      <label class="lbl" for="min_similarity" style="margin-top:18px;">Độ liên quan tối thiểu khi tra cứu tài liệu: <span id="min-similarity-value">{{ "%.2f"|format(min_similarity) }}</span></label>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-size:11px;color:var(--text-faint);">{{ "%.2f"|format(min_similarity_min) }} (Thoáng)</span>
+        <input type="range" id="min_similarity" name="min_similarity" min="{{ min_similarity_min }}" max="{{ min_similarity_max }}" step="0.05" value="{{ min_similarity }}" style="flex-grow:1;accent-color:var(--black);">
+        <span style="font-size:11px;color:var(--text-faint);">{{ "%.2f"|format(min_similarity_max) }} (Khắt khe)</span>
+      </div>
+      <div class="hint">Chỉ những đoạn tài liệu giống câu hỏi từ mức này trở lên mới được đưa cho AI; nếu không có đoạn nào đạt, trợ lý nói rõ là chưa có thông tin thay vì đoán. Thấp: ít bỏ sót nhưng dễ lẫn đoạn không liên quan. Cao: chỉ dùng đoạn rất sát nhưng có thể bỏ sót khi khách hỏi ngắn hoặc viết không dấu. Gợi ý: 0,25.</div>
     </div>
 
     <div class="card">
@@ -89,6 +213,7 @@
   </div>
 
 </form>
+<script type="application/json" id="tpl-data">{{ template_data|tojson }}</script>
 {% endblock %}
 {% block footer_right %}
 <a href="{{ url_for('dashboard.bot_knowledge', bot_id=bot.id) }}" class="btnp">Tiếp theo: Cơ sở tri thức →</a>
@@ -96,25 +221,261 @@
 {% block workspace_extra_js %}
 <script>
 (function () {
+  var MAX_CHARS = {{ instructions_max }};
+  var CSRF = '{{ csrf_token }}';
+
+  function byId(id) { return document.getElementById(id); }
+
+  // ---------------- Công tắc và thanh trượt ----------------
   document.querySelectorAll('[data-toggle-target]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var input = document.getElementById(btn.dataset.toggleTarget);
+      var input = byId(btn.dataset.toggleTarget);
       input.checked = !input.checked;
       btn.classList.toggle('on', input.checked);
     });
   });
-
-  var tempInput = document.getElementById('temperature');
-  var tempValue = document.getElementById('temp-value');
-  if (tempInput && tempValue) {
-    tempInput.addEventListener('input', function () { tempValue.textContent = parseFloat(tempInput.value).toFixed(1); });
+  function bindSlider(inputId, valueId, digits) {
+    var input = byId(inputId), out = byId(valueId);
+    if (input && out) input.addEventListener('input', function () { out.textContent = parseFloat(input.value).toFixed(digits); });
   }
-
-  var maxTokensInput = document.getElementById('max_tokens');
-  var maxTokensValue = document.getElementById('max-tokens-value');
+  bindSlider('temperature', 'temp-value', 1);
+  bindSlider('min_similarity', 'min-similarity-value', 2);
+  var maxTokensInput = byId('max_tokens'), maxTokensValue = byId('max-tokens-value');
   if (maxTokensInput && maxTokensValue) {
     maxTokensInput.addEventListener('input', function () { maxTokensValue.textContent = maxTokensInput.value; });
   }
+
+  // ---------------- Trình soạn chỉ dẫn (markdown) ----------------
+  var ta = byId('instructions');
+  var mirror = byId('ed-mirror');
+  var gutter = byId('ed-gutter');
+  var counter = byId('ins-count');
+  var msg = byId('ed-msg');
+  var scheduled = false;
+
+  function refreshGutter() {
+    // Mỗi dòng logic có 1 hàng số; chiều cao lấy từ bản sao ẩn của textarea để dòng tự xuống hàng vẫn khớp số dòng
+    mirror.style.width = ta.clientWidth + 'px';
+    mirror.textContent = '';
+    var lines = ta.value.split('\n');
+    lines.forEach(function (line) {
+      var row = document.createElement('div');
+      row.textContent = line === '' ? '​' : line;
+      mirror.appendChild(row);
+    });
+    gutter.textContent = '';
+    for (var i = 0; i < mirror.children.length; i++) {
+      var num = document.createElement('div');
+      num.textContent = String(i + 1);
+      num.style.height = mirror.children[i].offsetHeight + 'px';
+      gutter.appendChild(num);
+    }
+    syncScroll();
+  }
+  function syncScroll() { gutter.style.transform = 'translateY(' + (-ta.scrollTop) + 'px)'; }
+
+  function refreshCounter() {
+    var n = ta.value.length;
+    counter.textContent = n + ' / ' + MAX_CHARS + ' ký tự';
+    counter.className = 'counter' + (n === 0 ? '' : n >= MAX_CHARS ? ' over' : n >= MAX_CHARS * 0.9 ? ' warn' : ' ok');
+  }
+  function refresh() {
+    refreshCounter();
+    if (scheduled) return;
+    scheduled = true;
+    // setTimeout thay vì requestAnimationFrame: rAF không chạy khi tab ở nền nên cột số dòng sẽ lệch
+    setTimeout(function () { scheduled = false; refreshGutter(); }, 0);
+  }
+  ta.addEventListener('input', refresh);
+  ta.addEventListener('scroll', syncScroll);
+  window.addEventListener('resize', refresh);
+  if (window.ResizeObserver) new ResizeObserver(refresh).observe(byId('ed-area'));
+
+  function setMessage(text, kind, undoFn) {
+    msg.textContent = text || '';
+    msg.className = 'ed-msg' + (kind ? ' ' + kind : '');
+    msg.hidden = !text;
+    if (text && undoFn) {
+      var undo = document.createElement('button');
+      undo.type = 'button';
+      undo.textContent = 'Hoàn tác';
+      undo.addEventListener('click', function () { undoFn(); setMessage('Đã hoàn tác.', 'ok'); });
+      msg.appendChild(undo);
+    }
+  }
+
+  // Thay đoạn [start, end) bằng text rồi chọn [selStart, selEnd); ưu tiên execCommand để giữ được Ctrl+Z
+  function replaceRange(start, end, text, selStart, selEnd) {
+    ta.focus();
+    ta.setSelectionRange(start, end);
+    var done = false;
+    try { done = document.execCommand('insertText', false, text); } catch (e) { done = false; }
+    if (!done) {
+      ta.setRangeText(text, start, end, 'end');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    ta.setSelectionRange(selStart, selEnd);
+  }
+  // Đặt toàn bộ nội dung (điền mẫu, kết quả Tối ưu, hoàn tác)
+  function setAll(text) { replaceRange(0, ta.value.length, text, text.length, text.length); ta.scrollTop = 0; refresh(); }
+
+  function wrap(before, after, placeholder) {
+    var s = ta.selectionStart, e = ta.selectionEnd, chosen = ta.value.slice(s, e);
+    var inner = chosen || placeholder;
+    replaceRange(s, e, before + inner + after, s + before.length, s + before.length + inner.length);
+  }
+  function lineBounds() {
+    var v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+    if (e > s && v.charAt(e - 1) === '\n') e -= 1;  // chọn tới cuối dòng có ký tự xuống dòng thì không tính dòng kế tiếp
+    var ls = v.lastIndexOf('\n', s - 1) + 1;
+    var le = v.indexOf('\n', e);
+    return { start: ls, end: le < 0 ? v.length : le };
+  }
+  function mapLines(fn) {
+    var b = lineBounds();
+    var lines = ta.value.slice(b.start, b.end).split('\n');
+    var out = fn(lines).join('\n');
+    replaceRange(b.start, b.end, out, b.start, b.start + out.length);
+  }
+  function toggleLinePrefix(prefixFn, testRe) {
+    mapLines(function (lines) {
+      var allHave = lines.every(function (l) { return l.trim() === '' || testRe.test(l); });
+      return lines.map(function (l, i) {
+        if (allHave) return l.replace(testRe, '');
+        return prefixFn(l.replace(testRe, ''), i);
+      });
+    });
+  }
+
+  var COMMANDS = {
+    bold: function () { wrap('**', '**', 'chữ đậm'); },
+    italic: function () { wrap('*', '*', 'chữ nghiêng'); },
+    ul: function () { toggleLinePrefix(function (l) { return '- ' + l; }, /^\s*[-*]\s+(?!\[[ xX]\])/); },
+    ol: function () { toggleLinePrefix(function (l, i) { return (i + 1) + '. ' + l; }, /^\s*\d+\.\s+/); },
+    task: function () { toggleLinePrefix(function (l) { return '- [ ] ' + l; }, /^\s*-\s+\[[ xX]\]\s+/); },
+    quote: function () { toggleLinePrefix(function (l) { return '> ' + l; }, /^\s*>\s?/); },
+    link: function () {
+      var s = ta.selectionStart, e = ta.selectionEnd, label = ta.value.slice(s, e) || 'văn bản liên kết';
+      var text = '[' + label + '](https://)';
+      var urlStart = s + label.length + 3;
+      replaceRange(s, e, text, urlStart, urlStart + 8);
+    },
+    code: function () { wrap('`', '`', 'mã'); },
+    codeblock: function () {
+      var s = ta.selectionStart, e = ta.selectionEnd, chosen = ta.value.slice(s, e) || 'mã';
+      var lead = (s > 0 && ta.value.charAt(s - 1) !== '\n') ? '\n' : '';
+      var text = lead + '```\n' + chosen + '\n```\n';
+      var from = s + lead.length + 4;
+      replaceRange(s, e, text, from, from + chosen.length);
+    },
+    table: function () {
+      var s = ta.selectionStart, e = ta.selectionEnd;
+      var lead = (s > 0 && ta.value.charAt(s - 1) !== '\n') ? '\n' : '';
+      var text = lead + '| Cột 1 | Cột 2 |\n| --- | --- |\n| Nội dung | Nội dung |\n';
+      replaceRange(s, e, text, s + text.length, s + text.length);
+    }
+  };
+  document.querySelectorAll('.ed-btn').forEach(function (btn) {
+    btn.addEventListener('mousedown', function (ev) { ev.preventDefault(); });  // giữ vùng chọn trong textarea
+    btn.addEventListener('click', function () { COMMANDS[btn.dataset.cmd](); });
+  });
+  byId('ed-heading').addEventListener('change', function (ev) {
+    var level = parseInt(ev.target.value, 10) || 0;
+    mapLines(function (lines) {
+      return lines.map(function (l) {
+        var plain = l.replace(/^\s{0,3}#{1,6}\s+/, '');
+        return level ? new Array(level + 1).join('#') + ' ' + plain : plain;
+      });
+    });
+    ev.target.value = 'p';
+    ta.focus();
+  });
+  ta.addEventListener('keydown', function (ev) {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || ev.altKey) return;
+    var key = ev.key.toLowerCase();
+    if (key === 'b') { ev.preventDefault(); COMMANDS.bold(); }
+    if (key === 'i') { ev.preventDefault(); COMMANDS.italic(); }
+  });
+
+  // Thu gọn/mở rộng khung chỉ dẫn
+  var insToggle = byId('ins-toggle'), insBody = byId('ins-body');
+  function setInsOpen(open) {
+    insBody.hidden = !open;
+    insToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) refresh();
+  }
+  insToggle.addEventListener('click', function () { setInsOpen(insBody.hidden); });
+
+  // ---------------- Nút Tối ưu ----------------
+  var optimizeBtn = byId('ins-optimize'), optimizeLabel = byId('ins-optimize-label');
+  optimizeBtn.addEventListener('click', function () {
+    var original = ta.value;
+    if (!original.trim()) { setMessage('Chưa có chỉ dẫn để tối ưu. Hãy chọn một mẫu hoặc tự viết trước.', 'err'); return; }
+    optimizeBtn.disabled = true;
+    optimizeLabel.textContent = 'Đang tối ưu…';
+    setMessage('');
+    fetch(optimizeBtn.dataset.url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify({ instructions: original })
+    })
+      .then(function (r) { return r.json().then(function (body) { return { ok: r.ok, body: body }; }); })
+      .then(function (res) {
+        if (!res.ok) { setMessage(res.body.error || 'Không tối ưu được chỉ dẫn.', 'err'); return; }
+        setAll(res.body.instructions);
+        setMessage('Đã tối ưu chỉ dẫn — xem lại rồi bấm "Lưu thay đổi".', 'ok', function () { setAll(original); });
+      })
+      .catch(function () { setMessage('Không kết nối được máy chủ. Hãy thử lại.', 'err'); })
+      .then(function () { optimizeBtn.disabled = false; optimizeLabel.textContent = 'Tối ưu'; });
+  });
+
+  // ---------------- Chọn mẫu trợ lý ----------------
+  var TEMPLATES = JSON.parse(byId('tpl-data').textContent);
+  var cards = document.querySelectorAll('.tpl[data-key]');
+  var grid = byId('tpl-grid'), showBtn = byId('tpl-show'), note = byId('tpl-note');
+  var greeting = byId('greeting'), temperature = byId('temperature');
+
+  function setGridOpen(open) {
+    grid.hidden = !open;
+    showBtn.hidden = open;
+    try { localStorage.setItem('setup_templates_collapsed', open ? '0' : '1'); } catch (e) { /* bỏ qua: chỉ là tiện ích ghi nhớ */ }
+  }
+  try { if (localStorage.getItem('setup_templates_collapsed') === '1') setGridOpen(false); } catch (e) { /* localStorage bị chặn */ }
+  byId('tpl-hide').addEventListener('click', function () { setGridOpen(false); });
+  showBtn.addEventListener('click', function () { setGridOpen(true); });
+
+  function showNote(text) { note.textContent = text; note.hidden = false; }
+
+  cards.forEach(function (card) {
+    card.addEventListener('click', function () {
+      var t = TEMPLATES[card.dataset.key];
+      if (!t) return;
+      if (t.instructions !== null) {
+        var hasOwn = (ta.value.trim() && ta.value.trim() !== t.instructions.trim()) ||
+                     (greeting.value.trim() && greeting.value.trim() !== (t.greeting || '').trim());
+        if (hasOwn && !window.confirm('Áp dụng mẫu "' + t.name + '" sẽ thay lời chào, chỉ dẫn và độ sáng tạo đang có. Chưa có gì được lưu cho tới khi bạn bấm "Lưu thay đổi". Tiếp tục?')) return;
+      }
+      cards.forEach(function (c) { c.setAttribute('aria-pressed', c === card ? 'true' : 'false'); });
+      setInsOpen(true);
+      if (t.instructions === null) {
+        showNote('Đã chọn "' + t.name + '": tự viết chỉ dẫn của bạn ở khung "Tùy chỉnh trợ lý của bạn" bên dưới.');
+      } else {
+        greeting.value = t.greeting;
+        setAll(t.instructions);
+        if (t.temperature !== null) {
+          temperature.value = t.temperature;
+          temperature.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        setMessage('');
+        showNote('Đã áp dụng mẫu "' + t.name + '": chỉ dẫn tối ưu nằm ở khung "Tùy chỉnh trợ lý của bạn" bên dưới. Xem lại, chỉnh theo doanh nghiệp rồi bấm "Lưu thay đổi".');
+      }
+      byId('ins-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      ta.focus({ preventScroll: true });
+    });
+  });
+
+  refresh();
 })();
 </script>
 {% endblock %}

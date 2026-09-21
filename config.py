@@ -42,7 +42,6 @@ class Config:
     MAIL_SUPPRESS_SEND = os.environ.get("MAIL_SUPPRESS_SEND", "false").lower() == "true"
 
     DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-    DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
     EMBEDDING_MODEL_NAME = os.environ.get(
         "EMBEDDING_MODEL_NAME", "AITeamVN/Vietnamese_Embedding"

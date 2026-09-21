@@ -22,6 +22,9 @@
 .iconopt:hover{border-color:#A7C5EA;}
 .iconopt:has(input:checked){border-color:var(--accent);background:var(--accent-soft);}
 .iconopt:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px;}
+.iconopt:has(input:disabled){cursor:default;}
+.iconopt-custom{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.iconopt-upload-btn{font-size:11px;font-weight:700;color:var(--accent-dark);background:none;border:none;padding:2px;text-decoration:underline;}
 .seg{display:inline-flex;border:1.5px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;}
 .seg label{position:relative;padding:8px 16px;font-size:13px;font-weight:600;color:var(--text-soft);cursor:pointer;border-left:1px solid var(--border);}
 .seg label:first-child{border-left:none;}
@@ -140,6 +143,7 @@
 
         <div class="opt">
           <div class="opt-head"><span class="lbl">Icon nút chat</span></div>
+          <div class="hint" style="margin:0 0 10px;">Dùng cho cả nút chat và thanh tiêu đề của khung chat.</div>
           <div class="iconpick">
             {% for key, markup in widget_icons.items() %}
             <label class="iconopt">
@@ -148,7 +152,24 @@
               <span class="iconname">{{ widget_icon_labels[key] }}</span>
             </label>
             {% endfor %}
+            <div class="iconopt-custom">
+              <label class="iconopt" style="{{ '' if custom_icon_url else 'opacity:.6;' }}">
+                <input type="radio" name="widget_icon" value="{{ custom_icon_key }}" id="icon-custom-radio"
+                       {{ "checked" if appearance.icon == custom_icon_key else "" }}
+                       {{ "disabled" if not custom_icon_url else "" }}>
+                <span class="iconface" style="{{ 'overflow:hidden;' if custom_icon_url else 'background:transparent;border:1.5px dashed var(--text-faint);color:var(--text-faint);' }}">
+                  {% if custom_icon_url %}
+                    <img src="{{ custom_icon_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">
+                  {% else %}
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  {% endif %}
+                </span>
+                <span class="iconname">{{ widget_icon_labels[custom_icon_key] }}</span>
+              </label>
+              <button type="button" class="iconopt-upload-btn" id="icon-upload-trigger">{{ "Đổi ảnh" if custom_icon_url else "Tải ảnh lên" }}</button>
+            </div>
           </div>
+          <div class="hint">Ảnh PNG/JPG/WEBP, tối đa {{ max_icon_mb }}MB. Chọn ảnh vuông để hiển thị đẹp nhất.</div>
         </div>
 
         <div class="opt">
@@ -204,6 +225,13 @@
           <span class="dirty" id="dirty-note">● Có thay đổi chưa lưu</span>
         </div>
       </form>
+
+      <!-- Form riêng (không được lồng trong #appearance-form — HTML không cho phép <form> lồng nhau,
+           trình duyệt sẽ tự đóng form ngoài sớm và làm gãy mọi input phía sau nó) -->
+      <form id="icon-upload-form" method="post" action="{{ url_for('dashboard.bot_publish_icon_upload', bot_id=bot.id) }}" enctype="multipart/form-data" style="display:none;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="file" id="icon-file-input" name="icon_file" accept=".png,.jpg,.jpeg,.webp">
+      </form>
     </div>
   </div>
 
@@ -240,13 +268,19 @@
   var dirtyNote = document.getElementById('dirty-note');
 
   // Đọc TOÀN BỘ trạng thái form thành cấu hình widget — mọi ô trong form đều đi qua đây,
-  // nên ô nào đổi thì khung xem trước đổi theo (icon lấy markup ngay từ ô đang chọn).
+  // nên ô nào đổi thì khung xem trước đổi theo (icon lấy ngay từ ô đang chọn: markup SVG hoặc ảnh tự tải lên).
+  function collectIcon(checkedIconInput) {
+    var face = checkedIconInput.parentNode.querySelector('.iconface');
+    var img = face.querySelector('img');
+    return img ? { kind: 'image', value: img.src } : { kind: 'svg', value: face.querySelector('svg').innerHTML };
+  }
+
   function collect() {
     var data = new FormData(form);
     var icon = form.querySelector('input[name="widget_icon"]:checked');
     var win = form.querySelector('input[name="widget_window"]:checked');
     return {
-      icon: icon.parentNode.querySelector('svg').innerHTML,
+      icon: collectIcon(icon),
       color: data.get('widget_color'),
       size: parseInt(data.get('widget_size'), 10),
       shape: data.get('widget_shape'),
@@ -290,6 +324,13 @@
   document.getElementById('pv-reset').addEventListener('click', function () { widget.reset(); });
   window.addEventListener('resize', function () { widget.update({}); });
   sync();
+
+  // Icon tuỳ chỉnh: chọn ảnh -> tải lên ngay (giống Bước 2), không cần bấm "Lưu giao diện" riêng
+  var iconFileInput = document.getElementById('icon-file-input');
+  document.getElementById('icon-upload-trigger').addEventListener('click', function () { iconFileInput.click(); });
+  iconFileInput.addEventListener('change', function () {
+    if (iconFileInput.files.length) document.getElementById('icon-upload-form').submit();
+  });
 
   var btn = document.getElementById('copy-embed-btn');
   var code = document.getElementById('embed-code');

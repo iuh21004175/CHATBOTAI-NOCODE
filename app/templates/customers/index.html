@@ -1,0 +1,192 @@
+{% extends "shell.html" %}
+{% set active_nav = "customers" %}
+{% set page_title = "Khách hàng" %}
+{% block title %}Khách hàng{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/customers.css') }}">
+{% endblock %}
+{% macro page_url(n) -%}
+  {{ url_for('dashboard.customers', page=n if n > 1 else None, q=filters.search or None, channel=filters.channel or None, stage=filters.stage or None, status=filters.status or None) }}
+{%- endmacro %}
+{% block main %}
+{% set filtered = filters.search or filters.channel or filters.stage or filters.status %}
+<div class="cust-head">
+  <div>
+    <h1 class="cust-title">Quản lý khách hàng</h1>
+    <p class="cust-sub">Quản lý tất cả khách hàng của bạn</p>
+  </div>
+  <a class="cust-export" href="{{ url_for('dashboard.customers_export', q=filters.search or None, channel=filters.channel or None, stage=filters.stage or None, status=filters.status or None) }}">Xuất CSV</a>
+</div>
+
+<form class="cust-filters" method="get" action="{{ url_for('dashboard.customers') }}">
+  <label class="cust-search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+    <input type="search" name="q" placeholder="Tìm kiếm khách hàng..." value="{{ filters.search }}" maxlength="100">
+  </label>
+  <select class="cust-select" name="channel" aria-label="Nền tảng" onchange="this.form.submit()">
+    <option value="">Nền tảng</option>
+    {% for code, label in channel_options %}
+      <option value="{{ code }}" {{ "selected" if filters.channel == code else "" }}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select class="cust-select" name="stage" aria-label="Giai đoạn" onchange="this.form.submit()">
+    <option value="">Giai đoạn</option>
+    {% for code, label in stages.items() %}
+      <option value="{{ code }}" {{ "selected" if filters.stage == code else "" }}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select class="cust-select" name="status" aria-label="Trạng thái" onchange="this.form.submit()">
+    <option value="">Trạng thái</option>
+    {% for code, label in statuses.items() %}
+      <option value="{{ code }}" {{ "selected" if filters.status == code else "" }}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<div class="cust-card">
+  {% if not items %}
+    <div class="cust-empty">
+      <div class="cust-empty-icon">👥</div>
+      {% if filtered %}
+        <div class="cust-empty-title">Không tìm thấy khách hàng phù hợp</div>
+        <div class="cust-empty-desc">Thử đổi từ khóa hoặc bỏ bớt bộ lọc. <a href="{{ url_for('dashboard.customers') }}" style="color:var(--accent);font-weight:700;">Xóa bộ lọc</a></div>
+      {% else %}
+        <div class="cust-empty-title">Chưa có khách hàng nào</div>
+        <div class="cust-empty-desc">Khi khách để lại số điện thoại hoặc email trong hội thoại với trợ lý (bật "Thu thập thông tin khách hàng" ở Bước 1), họ sẽ xuất hiện ở đây.</div>
+      {% endif %}
+    </div>
+  {% else %}
+    <table class="cust-table">
+      <thead>
+        <tr><th>Khách hàng</th><th>Kênh</th><th>Giai đoạn</th><th>Trạng thái</th><th>Lần cuối tương tác</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for c in items %}
+          <tr>
+            <td>
+              <div class="cust-person">
+                <div class="cust-avatar" style="background:{{ c.color }};">{{ c.initials }}</div>
+                <div style="min-width:0;">
+                  <div class="cust-name">{{ c.display_name }}</div>
+                  {% if c.contact %}<div class="cust-contact">{{ c.contact }}</div>{% endif %}
+                </div>
+              </div>
+            </td>
+            <td>{{ c.channel_label }}</td>
+            <td><span class="cust-pill stage-{{ c.stage }}">{{ c.stage_label }}</span></td>
+            <td>
+              {% if c.status %}
+                <span class="cust-pill status-{{ c.status }}">{{ c.status_label }}</span>
+              {% else %}
+                <span class="cust-soft">—</span>
+              {% endif %}
+            </td>
+            <td class="cust-soft">{{ c.last_interaction_label }}</td>
+            <td>
+              <button type="button" class="cust-more" aria-label="Sửa khách hàng"
+                      data-id="{{ c.id }}" data-name="{{ c.name or '' }}" data-phone="{{ c.phone or '' }}"
+                      data-email="{{ c.email or '' }}" data-stage="{{ c.stage }}">⋯</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+
+{% if items %}
+<div class="cust-foot">
+  <span>Hiển thị {{ items|length }} trên tổng số {{ total }} khách hàng</span>
+  {% if pages > 1 %}
+  <nav class="cust-pager" aria-label="Phân trang">
+    {% if page > 1 %}<a class="cust-page" href="{{ page_url(page - 1) }}" aria-label="Trang trước">‹</a>{% else %}<span class="cust-page disabled">‹</span>{% endif %}
+    {% set ns = namespace(prev=0) %}
+    {% for n in range(1, pages + 1) if n == 1 or n == pages or (n - page)|abs <= 2 %}
+      {% if n - ns.prev > 1 %}<span class="cust-page gap">…</span>{% endif %}
+      {% if n == page %}<span class="cust-page current" aria-current="page">{{ n }}</span>{% else %}<a class="cust-page" href="{{ page_url(n) }}">{{ n }}</a>{% endif %}
+      {% set ns.prev = n %}
+    {% endfor %}
+    {% if page < pages %}<a class="cust-page" href="{{ page_url(page + 1) }}" aria-label="Trang sau">›</a>{% else %}<span class="cust-page disabled">›</span>{% endif %}
+  </nav>
+  {% endif %}
+</div>
+{% endif %}
+
+<dialog class="cust-dialog" id="cust-dialog">
+  <form method="dialog" id="cust-form" novalidate>
+    <h2>Sửa thông tin khách hàng</h2>
+    <label for="cust-name">Tên</label>
+    <input id="cust-name" name="name" type="text" maxlength="255" autocomplete="off">
+    <label for="cust-phone">Số điện thoại</label>
+    <input id="cust-phone" name="phone" type="text" maxlength="30" autocomplete="off" placeholder="VD: 0912 345 678 hoặc +84 912 345 678">
+    <label for="cust-email">Email</label>
+    <input id="cust-email" name="email" type="text" maxlength="255" autocomplete="off">
+    <label for="cust-stage">Giai đoạn</label>
+    <select id="cust-stage" name="stage">
+      {% for code, label in stages.items() %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+    </select>
+    <div class="cust-dialog-error" id="cust-error" hidden></div>
+    <div class="cust-dialog-actions">
+      <button type="button" class="cust-btn" id="cust-cancel">Hủy</button>
+      <button type="submit" class="cust-btn primary" id="cust-save">Lưu</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+{% block shell_extra_js %}
+<script>
+(function () {
+  var dialog = document.getElementById('cust-dialog');
+  var form = document.getElementById('cust-form');
+  var errorBox = document.getElementById('cust-error');
+  var saveBtn = document.getElementById('cust-save');
+  var csrfToken = {{ csrf_token|tojson }};
+  var editingId = null;
+
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.hidden = !message;
+  }
+
+  document.querySelectorAll('.cust-more').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      editingId = btn.dataset.id;
+      form.elements.name.value = btn.dataset.name;
+      form.elements.phone.value = btn.dataset.phone;
+      form.elements.email.value = btn.dataset.email;
+      form.elements.stage.value = btn.dataset.stage;
+      showError('');
+      dialog.showModal();
+      form.elements.name.focus();
+    });
+  });
+
+  document.getElementById('cust-cancel').addEventListener('click', function () { dialog.close(); });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!editingId) return;
+    saveBtn.disabled = true;
+    showError('');
+    fetch('/api/customers/' + encodeURIComponent(editingId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+      body: JSON.stringify({
+        name: form.elements.name.value,
+        phone: form.elements.phone.value,
+        email: form.elements.email.value,
+        stage: form.elements.stage.value
+      })
+    }).then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error(data && data.error ? data.error : 'Không lưu được, vui lòng thử lại.');
+        window.location.reload();
+      });
+    }).catch(function (err) {
+      showError(err.message || 'Không lưu được, vui lòng thử lại.');
+      saveBtn.disabled = false;
+    });
+  });
+})();
+</script>
+{% endblock %}

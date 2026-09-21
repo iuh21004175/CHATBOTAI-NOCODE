@@ -81,16 +81,19 @@ class BotSettings(db.Model):
     greeting = db.Column(db.Text)  # lời chào
     instructions = db.Column(db.Text)  # hướng dẫn/tính cách
     language = db.Column(db.String(20), default="vi")
-    ai_model = db.Column(db.String(50), default="deepseek-chat")
+    ai_model = db.Column(db.String(50), default="deepseek-chat")  # không còn dùng: model cố định trong core/llm_client.py
     temperature = db.Column(db.Float, default=0.7)
     max_tokens = db.Column(db.Integer, nullable=False, default=500, server_default="500")  # token đầu ra tối đa
     chunk_size = db.Column(db.Integer, nullable=False, default=450, server_default="450")  # token/chunk (Bước 2)
     chunk_overlap = db.Column(db.Integer, nullable=False, default=60, server_default="60")
+    # Độ giống (cosine 0-1) tối thiểu để đoạn tài liệu được đưa cho AI (Bước 1); xem rag_engine.DEFAULT_MIN_SIMILARITY
+    min_similarity = db.Column(db.Float, nullable=False, default=0.25, server_default="0.25")
     forward_to_staff = db.Column(db.Boolean, default=True)
     collect_customer_info = db.Column(db.Boolean, default=True)
     away_message = db.Column(db.Text)
     widget_domain = db.Column(db.String(255))  # domain website được phép nhúng Web Widget
-    widget_icon = db.Column(db.String(20), nullable=False, default="chat", server_default="chat")  # key trong app/widget/icons.py
+    widget_icon = db.Column(db.String(20), nullable=False, default="chat", server_default="chat")  # key trong app/widget/icons.py, hoặc "custom" (xem widget_icon_path)
+    widget_icon_path = db.Column(db.String(500), nullable=True)  # object key MinIO của ảnh icon tự tải lên khi widget_icon="custom"
     widget_color = db.Column(db.String(7), nullable=False, default="#1D4ED8", server_default="#1D4ED8")  # màu chủ đạo #RRGGBB
     widget_size = db.Column(db.Integer, nullable=False, default=56, server_default="56")  # đường kính nút chat (px)
     widget_shape = db.Column(db.String(10), nullable=False, default="round", server_default="round")  # round|rounded
@@ -167,6 +170,8 @@ class Customer(db.Model):
     name = db.Column(db.String(255))
     phone = db.Column(db.String(50))
     email = db.Column(db.String(255))
+    # Giai đoạn chăm sóc: new (Mới) | lead (Tiềm năng) | won (Đã chốt); xem app/customers/service.STAGES
+    stage = db.Column(db.String(20), nullable=False, default="new", server_default="new")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     conversations = db.relationship("Conversation", backref="customer_ref")

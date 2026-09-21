@@ -38,6 +38,7 @@ def create_app(config_object="config.Config"):
     from app.widget.routes import bp as widget_bp
 
     from app.dashboard import events  # noqa: F401 — đăng ký handler Socket.IO (trạng thái xử lý tài liệu)
+    from app.inbox import events as inbox_events  # noqa: F401 — đăng ký handler Socket.IO (tin nhắn mới trong Inbox)
     from app import models  # noqa: F401 — đăng ký model với SQLAlchemy metadata cho Flask-Migrate
 
     for bp in (

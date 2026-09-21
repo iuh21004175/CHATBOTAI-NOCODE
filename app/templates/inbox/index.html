@@ -1,0 +1,63 @@
+{% extends "shell.html" %}
+{% set active_nav = "inbox" %}
+{% set page_title = "Tin nhắn" %}
+{% block title %}Tin nhắn{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inbox.css') }}">
+{% endblock %}
+{% block main %}
+<div class="ib" id="ib">
+  <section class="ib-list" aria-label="Danh sách hội thoại">
+    <div class="ib-search">
+      <label>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="search" id="ib-search" placeholder="Tìm kiếm..." maxlength="100" autocomplete="off">
+      </label>
+    </div>
+    <div class="ib-items" id="ib-items"></div>
+  </section>
+
+  <section class="ib-thread" aria-label="Nội dung hội thoại">
+    <div class="ib-empty" id="ib-empty">
+      <div class="ib-empty-icon">💬</div>
+      <div class="ib-empty-title" id="ib-empty-title">Chọn một hội thoại</div>
+      <div class="ib-empty-desc" id="ib-empty-desc">Chọn hội thoại ở danh sách bên trái để xem và trả lời khách.</div>
+    </div>
+
+    <div id="ib-open" style="display:none;flex-direction:column;flex-grow:1;min-height:0;">
+      <div class="ib-head">
+        <button type="button" class="ib-back" id="ib-back" aria-label="Về danh sách">‹</button>
+        <div class="ib-avatar sm" id="ib-head-avatar"></div>
+        <div class="ib-head-info">
+          <div class="ib-head-name" id="ib-head-name"></div>
+          <div class="ib-head-channel" id="ib-head-channel"></div>
+        </div>
+        <span class="ib-pill" id="ib-head-status"></span>
+      </div>
+      <div class="ib-msgs" id="ib-msgs"></div>
+      <form class="ib-compose" id="ib-form" autocomplete="off">
+        <div class="ib-error" id="ib-error" hidden></div>
+        <div class="ib-compose-box">
+          <input type="text" id="ib-input" placeholder="Nhập tin nhắn trả lời..." maxlength="2000" aria-label="Tin nhắn trả lời">
+          <button type="submit" class="ib-send" id="ib-send" aria-label="Gửi">
+            <svg viewBox="0 0 24 24" fill="#fff"><path d="M2 21l21-9L2 3v7l15 2-15 2z"></path></svg>
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <aside class="ib-panel" id="ib-panel" aria-label="Thông tin khách" hidden></aside>
+</div>
+{% endblock %}
+{% block shell_extra_js %}
+<script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+<script>
+  window.INBOX = {
+    csrfToken: {{ csrf_token|tojson }},
+    initialId: {{ initial_conversation_id|tojson }},
+    customersUrl: {{ url_for('dashboard.customers')|tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='js/inbox.js') }}"></script>
+{% endblock %}

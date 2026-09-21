@@ -18,6 +18,15 @@ def save_file(team_id: int, bot_id: int, document_id: int, filename: str, file_s
     return key
 
 
+def save_icon(team_id: int, bot_id: int, filename: str, file_stream, length: int) -> str:
+    """Upload ảnh icon widget tự tải lên (Bước 3 — Xuất bản). filename PHẢI khác nhau giữa các lần tải
+    (vd. có mốc thời gian) để mỗi lần tải là 1 object key mới — nhờ đó URL công khai của icon
+    (kèm ?v=<tên file>) tự đổi theo, không dính cache trình duyệt của lần tải trước."""
+    key = f"{team_id}/{bot_id}/icon/{filename}"
+    minio_client.put_object(Config.MINIO_BUCKET, key, file_stream, length)
+    return key
+
+
 def get_file(object_key: str):
     """Đọc file từ MinIO theo object key."""
     return minio_client.get_object(Config.MINIO_BUCKET, object_key)

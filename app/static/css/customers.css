@@ -1,0 +1,281 @@
+/* Trang Quản lý khách hàng — giá trị theo mẫu thiết kế "Quản lý khách hàng" */
+.cust-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.cust-title {
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0 0 2px;
+}
+
+.cust-sub {
+  font-size: 14px;
+  color: var(--text-soft);
+  margin: 0;
+}
+
+.cust-export {
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: var(--black);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  white-space: nowrap;
+}
+
+.cust-export:hover {
+  background: #1E40AF;
+}
+
+.cust-filters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.cust-search {
+  flex: 1 1 240px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 9px 12px;
+}
+
+.cust-search svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.cust-search input {
+  flex-grow: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.cust-select {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  background: #fff;
+  color: var(--text-soft);
+}
+
+.cust-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  overflow-x: auto;
+}
+
+.cust-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.cust-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  padding: 14px 16px 10px;
+}
+
+.cust-table td {
+  padding: 14px 16px;
+  border-top: 1px solid #F3F1EF;
+  font-size: 13.5px;
+  vertical-align: middle;
+}
+
+.cust-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cust-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cust-name {
+  font-weight: 700;
+}
+
+.cust-contact {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.cust-soft {
+  color: var(--text-soft);
+}
+
+.cust-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-block;
+  white-space: nowrap;
+  background: #F3F4F6;
+  color: #374151;
+}
+
+.cust-pill.stage-lead { background: #EFF6FF; color: #2563EB; }
+.cust-pill.stage-won { background: var(--green-bg); color: var(--green-text); }
+.cust-pill.status-waiting { background: var(--amber-bg); color: var(--amber-text); }
+
+.cust-more {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.cust-more:hover {
+  background: #F5F5F4;
+  color: var(--text-soft);
+}
+
+.cust-empty {
+  padding: 56px 24px;
+  text-align: center;
+}
+
+.cust-empty-icon { font-size: 32px; }
+.cust-empty-title { font-size: 15px; font-weight: 700; margin-top: 10px; }
+.cust-empty-desc { font-size: 13px; color: var(--text-soft); margin: 6px auto 0; max-width: 420px; }
+
+.cust-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.cust-pager {
+  display: flex;
+  gap: 6px;
+}
+
+.cust-page {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+a.cust-page:hover { background: var(--accent-soft); }
+.cust-page.current { background: var(--black); border-color: var(--black); color: #fff; }
+.cust-page.disabled { color: var(--text-faint); background: #F8FAFC; }
+.cust-page.gap { border: none; background: transparent; min-width: 16px; padding: 0; }
+
+/* Hộp thoại sửa khách hàng */
+.cust-dialog {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0;
+  width: min(420px, calc(100vw - 32px));
+  color: var(--text);
+  box-shadow: 0 20px 50px -12px rgba(15, 23, 42, .3);
+}
+
+.cust-dialog::backdrop { background: rgba(15, 23, 42, .35); }
+.cust-dialog form { padding: 22px; }
+.cust-dialog h2 { font-size: 17px; font-weight: 800; margin: 0 0 16px; }
+.cust-dialog label { display: block; font-size: 12.5px; font-weight: 700; margin: 12px 0 5px; }
+
+.cust-dialog input,
+.cust-dialog select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  background: #fff;
+}
+
+.cust-dialog input:focus,
+.cust-dialog select:focus { outline: none; border-color: var(--accent); }
+
+.cust-dialog-error {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cust-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.cust-btn {
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cust-btn.primary { background: var(--black); border-color: var(--black); color: #fff; }
+.cust-btn:disabled { opacity: .6; cursor: default; }
