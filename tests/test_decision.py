@@ -1,5 +1,6 @@
 """Cây quyết định Bước C — mỗi nhánh 1 test (candidate_count=0, intent thấp, slot thiếu, nhiều ứng viên + gap nhỏ,
-áp lực ngữ cảnh cao) cộng thứ tự ưu tiên, giới hạn lượt hỏi làm rõ, và các trường hợp biên."""
+áp lực ngữ cảnh cao) cộng thứ tự ưu tiên, hành vi khi tắt hỏi làm rõ (không còn trần số lượt liên tiếp), và các
+trường hợp biên."""
 import unittest
 
 from core import rag_engine
@@ -33,12 +34,10 @@ class NoRelevantContext(unittest.TestCase):
         self.assertIn("Xin lỗi", resolve_reply_text(r, output(), vi))
         self.assertIn("Sorry", resolve_reply_text(decide(signals(candidate_count=0), en, output()), output(), en))
 
-    def test_clarify_cap_reached_declines_instead_of_llm_answer(self):
-        # Hết lượt hỏi làm rõ: KHÔNG được chuyển sang ANSWER bằng proposed_answer khi không có ngữ cảnh đạt ngưỡng
-        s = settings(max_clarification_turns=2)
-        result = decide(signals(candidate_count=0, clarification_turns_used=2), s, output())
-        self.assertEqual(result.decision, Decision.DECLINE)
-        self.assertIn("clarification_limit_reached", result.reasons)
+    def test_clarify_is_never_capped_by_turns_used(self):
+        # Không còn trần số lượt hỏi làm rõ liên tiếp: dù đã hỏi nhiều lượt, vẫn tiếp tục CLARIFY thay vì bị ép DECLINE.
+        result = decide(signals(candidate_count=0, clarification_turns_used=99), settings(), output())
+        self.assertEqual(result.decision, Decision.CLARIFY)
 
     def test_clarification_disabled_declines(self):
         result = decide(signals(candidate_count=0), settings(clarification_enabled=False), output())
@@ -131,9 +130,9 @@ class ScopeNarrowingBranch(unittest.TestCase):
     def test_without_the_flag_nothing_changes(self):
         self.assertEqual(decide(signals(scope_narrowing=False), settings(), output()).decision, Decision.ANSWER)
 
-    def test_when_turns_are_exhausted_it_answers_instead_of_looping(self):
-        # Engine không bật chế độ này khi hết lượt; nếu vẫn lọt tới đây thì cũng không được hỏi tiếp vô hạn
-        result = decide(signals(scope_narrowing=True, clarification_turns_used=2), settings(max_clarification_turns=2), output())
+    def test_when_clarification_is_disabled_it_answers_instead_of_looping(self):
+        # Engine không bật chế độ này khi tắt hỏi làm rõ; nếu vẫn lọt tới đây thì cũng không được hỏi tiếp
+        result = decide(signals(scope_narrowing=True), settings(clarification_enabled=False), output())
         self.assertEqual(result.decision, Decision.ANSWER)
         self.assertTrue(result.forced_answer)
 
@@ -150,35 +149,34 @@ class ContextPressure(unittest.TestCase):
         self.assertNotIn("context_compressed", decide(signals(), settings(), output()).reasons)
 
 
-class ClarificationLimit(unittest.TestCase):
-    def test_can_clarify(self):
-        s = settings(max_clarification_turns=2)
-        self.assertTrue(can_clarify(s, 0))
-        self.assertTrue(can_clarify(s, 1))
-        self.assertFalse(can_clarify(s, 2))
-        self.assertFalse(can_clarify(settings(clarification_enabled=False), 0))
-        self.assertFalse(can_clarify(settings(max_clarification_turns=0), 0))
+class ClarificationDisabledFallback(unittest.TestCase):
+    """Không còn trần số lượt liên tiếp — can_clarify() chỉ còn phụ thuộc clarification_enabled. Các nhánh ép ANSWER/
+    DECLINE dưới đây chỉ còn xảy ra khi hỏi làm rõ bị tắt hẳn."""
 
-    def test_cap_reached_forces_answer_with_polite_note_when_unsure(self):
-        s = settings(max_clarification_turns=2)
+    def test_can_clarify(self):
+        self.assertTrue(can_clarify(settings()))
+        self.assertFalse(can_clarify(settings(clarification_enabled=False)))
+
+    def test_disabled_forces_answer_with_polite_note_when_unsure(self):
+        s = settings(clarification_enabled=False)
         out = output(self_assessed_confidence=0.3)
-        result = decide(signals(intent_confidence=0.2, clarification_turns_used=2), s, out)
+        result = decide(signals(intent_confidence=0.2), s, out)
         self.assertEqual(result.decision, Decision.ANSWER)
         self.assertTrue(result.forced_answer)
-        self.assertIn("clarification_limit_reached", result.reasons)
+        self.assertIn("clarification_disabled", result.reasons)
         text = resolve_reply_text(result, out, s)
         self.assertTrue(text.startswith(out.proposed_answer))
         self.assertIn("Lưu ý", text)
 
-    def test_cap_reached_no_note_when_confident(self):
-        s = settings()
+    def test_disabled_no_note_when_confident(self):
+        s = settings(clarification_enabled=False)
         out = output(self_assessed_confidence=0.9)
-        result = decide(signals(intent_confidence=0.2, clarification_turns_used=2), s, out)
+        result = decide(signals(intent_confidence=0.2), s, out)
         self.assertEqual(resolve_reply_text(result, out, s), out.proposed_answer)
 
-    def test_forced_answer_with_empty_answer_declines(self):
+    def test_disabled_with_empty_answer_declines(self):
         out = output(proposed_answer="")
-        result = decide(signals(intent_confidence=0.2, clarification_turns_used=2), settings(), out)
+        result = decide(signals(intent_confidence=0.2), settings(clarification_enabled=False), out)
         self.assertEqual(result.decision, Decision.DECLINE)
 
     def test_clarification_disabled_forces_answer(self):
@@ -186,10 +184,12 @@ class ClarificationLimit(unittest.TestCase):
         self.assertEqual(result.decision, Decision.ANSWER)
         self.assertIn("clarification_disabled", result.reasons)
 
-    def test_llm_only_gave_question_clarifies_if_allowed(self):
+    def test_llm_only_gave_question_clarifies_unless_disabled(self):
         out = output(proposed_answer="", proposed_clarification_question="Bạn muốn xem gói nào?")
         self.assertEqual(decide(signals(), settings(), out).decision, Decision.CLARIFY)
-        self.assertEqual(decide(signals(clarification_turns_used=2), settings(), out).decision, Decision.DECLINE)
+        self.assertEqual(decide(signals(clarification_turns_used=99), settings(), out).decision, Decision.CLARIFY,
+                          "không còn trần số lượt hỏi làm rõ liên tiếp")
+        self.assertEqual(decide(signals(), settings(clarification_enabled=False), out).decision, Decision.DECLINE)
 
 
 class AmbiguityDetector(unittest.TestCase):

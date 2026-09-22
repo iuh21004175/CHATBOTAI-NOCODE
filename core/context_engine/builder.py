@@ -236,7 +236,7 @@ def refit_rag(plan: ContextPlan, retrieved_passages: list[dict], *, allow_scope_
     - vừa ngân sách  -> đưa nguyên văn (chunk lân cận thêm nếu còn chỗ), bot trả lời trực tiếp;
     - vượt ngân sách và allow_scope_narrowing -> chế độ THU HẸP PHẠM VI: đưa phần mở đầu của TỪNG chunk (tổng <= ngân sách) và
       bảo LLM đặt 1 câu hỏi thu hẹp; lượt sau khách nêu rõ hơn thì tìm lại, tới khi vừa ngân sách thì trả lời;
-    - vượt ngân sách nhưng không được hỏi (hết lượt/tắt hỏi làm rõ) -> giữ các chunk liên quan nhất còn vừa ngân sách."""
+    - vượt ngân sách nhưng không được hỏi (tắt hỏi làm rõ) -> giữ các chunk liên quan nhất còn vừa ngân sách."""
     budget = ContextBudgetManager.rag_budget(plan.settings, ContextBudgetManager.available_rag_tokens(plan))
     plan.scope_narrowing, plan.overflow_info = False, None
     if not retrieved_passages or budget <= 0:

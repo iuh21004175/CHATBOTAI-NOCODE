@@ -40,8 +40,8 @@ class TurnPersistence(DbCase):
 
         state = ConversationState.query.filter_by(conversation_id=conversation.id).one()
         self.assertEqual((state.bot_id, state.current_intent, state.slots), (self.bot.id, "ask_price", {"quantity": 3}))
-        rows = StructuredMemory.query.filter_by(conversation_id=conversation.id).all()
-        self.assertEqual([(r.mem_key, r.value, r.bot_id) for r in rows], [("ngân sách", "30 triệu", self.bot.id)])
+        # "Ghi nhớ thông tin khách nêu" cố định tắt (trùng chức năng với tóm tắt hội thoại dài) -> không còn ghi bộ nhớ.
+        self.assertEqual(StructuredMemory.query.filter_by(conversation_id=conversation.id).count(), 0)
 
     def test_unreported_usage_is_stored_as_null_not_zero(self):
         conversation = self.conversation()
@@ -51,28 +51,31 @@ class TurnPersistence(DbCase):
         self.assertIsNone(stored.usage_cache_hit_tokens)
 
     def test_memory_updates_same_key_and_respects_max_items(self):
-        self.set_settings(config_tier="expert", memory_max_items=2)
+        # "Ghi nhớ thông tin khách nêu" cố định tắt trong sản phẩm (FIXED_TOGGLES) nên luồng trả lời thật không còn gọi
+        # ctx_state.store_memory — kiểm tra trực tiếp logic gộp/giới hạn của hàm này (vẫn còn trong code, chỉ không
+        # được gọi qua đường sản phẩm nữa).
         conversation = self.conversation()
+        settings = EngineSettings.defaults(memory_max_items=2)
         item = lambda key, value, conf: {"category": "entity", "key": key, "value": value, "confidence": conf}
-        self.turn(conversation, "a", llm_json(memory_updates=[item("tên", "Nam", 0.9), item("sdt", "0901", 0.8)]))
-        self.turn(conversation, "b", llm_json(memory_updates=[item("tên", "Nam Nguyễn", 0.95), item("email", "a@b.vn", 0.75)]))
+        ctx_state.store_memory(self.bot.id, conversation.id, [item("tên", "Nam", 0.9), item("sdt", "0901", 0.8)], settings, None)
+        self.db.session.commit()
+        ctx_state.store_memory(self.bot.id, conversation.id, [item("tên", "Nam Nguyễn", 0.95), item("email", "a@b.vn", 0.75)], settings, None)
+        self.db.session.commit()
         rows = {r.mem_key: r.value for r in StructuredMemory.query.filter_by(conversation_id=conversation.id).all()}
         self.assertEqual(rows, {"tên": "Nam Nguyễn", "sdt": "0901"}, "cùng key -> ghi đè; vượt 2 mục -> bỏ mục confidence thấp nhất (email 0,75)")
 
     def test_memory_switch_off_stores_nothing_and_does_not_read(self):
-        self.set_settings(structured_memory_enabled=False)
-        conversation = self.conversation()
-        self.turn(conversation, "a", llm_json(memory_updates=[{"category": "entity", "key": "k", "value": "v", "confidence": 0.99}]))
-        self.assertEqual(StructuredMemory.query.count(), 0)
-
-    def test_memory_from_earlier_turn_reaches_the_next_prompt(self):
+        # "Ghi nhớ thông tin khách nêu" cố định tắt — giá trị lưu trong DB không còn ảnh hưởng.
+        self.set_settings(structured_memory_enabled=True)
         conversation = self.conversation()
         self.turn(conversation, "Tôi tên Nam", llm_json(memory_updates=[{"category": "entity", "key": "tên", "value": "Nam", "confidence": 0.9}]))
+        self.assertEqual(StructuredMemory.query.count(), 0)
         self.turn(conversation, "Tôi tên gì?", llm_json())
         system = self.llm.calls[1][0]["content"]
-        self.assertIn("[entity] tên: Nam", system)
+        self.assertNotIn("[entity] tên: Nam", system)
 
-    def test_clarification_cap_over_real_turns(self):
+    def test_clarification_has_no_cap_over_real_turns(self):
+        # Không còn trần số lượt hỏi làm rõ liên tiếp: AI Agent tự quyết định, có thể hỏi liên tục nhiều lượt.
         conversation = self.conversation()
         clarify = llm_json(intent_confidence=0.3, proposed_answer="Đây là câu trả lời", proposed_clarification_question="Bạn nói rõ hơn được không?")
         decisions, counters = [], []
@@ -80,8 +83,8 @@ class TurnPersistence(DbCase):
             _, message = self.turn(conversation, q, clarify)
             decisions.append(message.decision_trace["decision"])
             counters.append(ConversationState.query.filter_by(conversation_id=conversation.id).one().clarification_turns_used)
-        self.assertEqual(decisions, ["clarify", "clarify", "answer", "clarify"])
-        self.assertEqual(counters, [1, 2, 0, 1], "hết 2 lượt hỏi làm rõ thì ép trả lời rồi bắt đầu đợt hỏi mới")
+        self.assertEqual(decisions, ["clarify", "clarify", "clarify", "clarify"])
+        self.assertEqual(counters, [1, 2, 3, 4])
 
     def test_recent_messages_exclude_current_and_staff_and_use_roles(self):
         conversation = self.conversation()
@@ -104,7 +107,7 @@ class TurnPersistence(DbCase):
         self.assertFalse(hasattr(rag_engine, "answer"))
 
     def test_history_size_follows_recent_message_limit_setting(self):
-        self.set_settings(config_tier="advanced", recent_message_limit=4)
+        self.set_settings(recent_message_limit=4)
         conversation = self.conversation()
         for i in range(10):
             self.add_message(conversation, "customer" if i % 2 == 0 else "bot", f"tin {i}")
@@ -139,32 +142,33 @@ class SummaryTrigger(DbCase):
         return ConversationState.query.filter_by(conversation_id=conversation.id).one()
 
     def test_flag_set_when_unsummarised_tokens_exceed_trigger(self):
-        self.set_settings(config_tier="advanced", summary_trigger_tokens=500)
+        self.set_settings(summary_trigger_tokens=500)
         conversation = self.conversation()
         self.fill(conversation, 6, 60)
         self.assertTrue(self.reply(conversation).summary_pending)
 
     def test_flag_not_set_below_trigger(self):
-        self.set_settings(config_tier="advanced", summary_trigger_tokens=20_000)
+        self.set_settings(summary_trigger_tokens=20_000)
         conversation = self.conversation()
         self.fill(conversation, 4, 10)
         self.assertFalse(self.reply(conversation).summary_pending)
 
-    def test_flag_never_set_when_summary_disabled(self):
-        self.set_settings(config_tier="basic", summary_enabled=False)
+    def test_summary_stays_enabled_even_if_db_stores_it_disabled(self):
+        # summary_enabled giờ cố định bật (FIXED_TOGGLES) — giá trị lưu trong DB không còn ảnh hưởng.
+        self.set_settings(summary_enabled=False, summary_trigger_tokens=500)
         conversation = self.conversation()
-        self.fill(conversation, 12, 200)
-        self.assertFalse(self.reply(conversation).summary_pending)
+        self.fill(conversation, 6, 60)
+        self.assertTrue(self.reply(conversation).summary_pending)
 
     def test_the_request_does_not_call_the_llm_for_summary(self):
-        self.set_settings(config_tier="advanced", summary_trigger_tokens=500)
+        self.set_settings(summary_trigger_tokens=500)
         conversation = self.conversation()
         self.fill(conversation, 6, 60)
         self.reply(conversation)
         self.assertEqual(len(self.llm.calls), 1, "tóm tắt chạy ở nền, không nằm trong luồng trả lời realtime")
 
     def test_only_unsummarised_messages_are_counted(self):
-        self.set_settings(config_tier="advanced", summary_trigger_tokens=500)
+        self.set_settings(summary_trigger_tokens=500)
         conversation = self.conversation()
         self.fill(conversation, 6, 60)
         last = Message.query.filter_by(conversation_id=conversation.id).order_by(Message.id.desc()).first()
@@ -177,7 +181,7 @@ class SummaryTrigger(DbCase):
 class SummaryJob(DbCase):
     def setUp(self):
         super().setUp()
-        self.set_settings(config_tier="advanced", recent_message_limit=4)
+        self.set_settings(recent_message_limit=4)
         self.conversation_ = self.conversation()
         self.messages = [self.add_message(self.conversation_, "customer" if i % 2 == 0 else "bot", f"tin so {i}") for i in range(12)]
         self.state = ctx_state.get_or_create_state(self.conversation_)
@@ -244,8 +248,9 @@ class SummaryJob(DbCase):
         self.assertFalse(self.state.summary_pending)
 
     def test_disabled_summary_clears_flag(self):
-        self.set_settings(summary_enabled=False, config_tier="expert")
-        settings = EngineSettings.from_model(self.service.get_or_create_settings(self.bot))
+        # summary_enabled giờ cố định bật qua from_model (không đọc từ DB) — kiểm tra trực tiếp job function vẫn tôn
+        # trọng cờ tắt khi được truyền thẳng một EngineSettings (phòng hờ, đường sản phẩm không còn tạo ra cờ này).
+        settings = EngineSettings.defaults(summary_enabled=False)
         call, seen = self.fake()
         self.assertFalse(jobs.summarize_conversation(self.state, settings, call=call))
         self.assertEqual(seen, [])
@@ -376,20 +381,29 @@ class WidgetFlow(DbCase):
 
 
 class MultiTenant(DbCase):
-    def test_state_and_memory_are_scoped_to_their_bot_and_conversation(self):
+    def test_state_is_scoped_to_its_bot_and_conversation(self):
         other_team = self.make_team("Team B")
         other_bot = self.service.create_bot(other_team.id, "Bot B")
         conv_a, conv_b = self.conversation(), self.conversation(other_bot)
-        item = lambda v: [{"category": "entity", "key": "tên", "value": v, "confidence": 0.9}]
-        for bot, conv, name in ((self.bot, conv_a, "An"), (other_bot, conv_b, "Bình")):
-            self.llm.replies.append(LLMReply(llm_json(memory_updates=item(name)), usage()))
+        for bot, conv in ((self.bot, conv_a), (other_bot, conv_b)):
+            self.llm.replies.append(LLMReply(llm_json(), usage()))
             customer = self.add_message(conv, "customer", "hi")
             self.service.reply_to_customer(bot, conv, customer)
         self.assertEqual({(s.conversation_id, s.bot_id) for s in ConversationState.query.all()}, {(conv_a.id, self.bot.id), (conv_b.id, other_bot.id)})
+
+    def test_memory_is_scoped_to_its_bot_and_conversation(self):
+        # "Ghi nhớ thông tin khách nêu" cố định tắt trong sản phẩm nên luồng trả lời thật không còn gọi
+        # ctx_state.store_memory — kiểm tra trực tiếp hàm này (vẫn còn trong code) tôn trọng phạm vi bot/hội thoại.
+        other_team = self.make_team("Team B")
+        other_bot = self.service.create_bot(other_team.id, "Bot B")
+        conv_a, conv_b = self.conversation(), self.conversation(other_bot)
+        settings = EngineSettings.defaults()
+        item = lambda v: [{"category": "entity", "key": "tên", "value": v, "confidence": 0.9}]
+        for bot, conv, name in ((self.bot, conv_a, "An"), (other_bot, conv_b, "Bình")):
+            ctx_state.store_memory(bot.id, conv.id, item(name), settings, None)
+        self.db.session.commit()
         mem = {(m.bot_id, m.value) for m in StructuredMemory.query.all()}
         self.assertEqual(mem, {(self.bot.id, "An"), (other_bot.id, "Bình")})
-        # Lượt 2 là lượt ĐẦU của hội thoại của Bot B: chưa có bộ nhớ nào, bộ nhớ của Bot A không được rò sang
-        self.assertNotIn("Những điều đã biết", self.llm.calls[1][0]["content"])
 
     def test_team_usage_summary_only_counts_that_teams_bots(self):
         other_team = self.make_team("Team B")
@@ -427,7 +441,7 @@ class PreviewIsStateless(DbCase):
 
 class NoRelevantContextThroughService(DbCase):
     def test_owner_message_is_sent_and_llm_answer_ignored(self):
-        self.set_settings(config_tier="expert", low_confidence_clarify_message="Bạn hỏi về gói nào ạ?")
+        self.set_settings(low_confidence_clarify_message="Bạn hỏi về gói nào ạ?")
         self.retrieval = retrieval(count=0)
         conversation = self.conversation()
         self.llm.replies.append(LLMReply(llm_json(proposed_answer="TỰ BỊA"), usage()))

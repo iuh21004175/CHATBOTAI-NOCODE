@@ -1,15 +1,15 @@
-"""Cấu hình hiệu lực theo tier + mặc định khớp cột DB."""
+"""Cấu hình hiệu lực: công tắc cố định (FIXED_TOGGLES) + mọi thông số số luôn honour giá trị lưu + mặc định khớp cột DB."""
 import unittest
 from types import SimpleNamespace
 
 from app.models import BotSettings
 from core.context_engine import settings as cfg
-from core.context_engine.settings import DEFAULTS, EngineSettings
+from core.context_engine.settings import DEFAULTS, FIXED_TOGGLES, EngineSettings
 
 
 def row(**overrides):
     """Bản ghi bot_settings giả: mọi trường engine = giá trị lưu; mặc định = DEFAULTS."""
-    base = dict(DEFAULTS, config_tier="expert", language="vi", instructions="", temperature=0.7, max_tokens=500)
+    base = dict(DEFAULTS, language="vi", instructions="", temperature=0.7, max_tokens=500)
     base.update(overrides)
     return SimpleNamespace(**base)
 
@@ -36,44 +36,45 @@ class DefaultsMatchDatabase(unittest.TestCase):
             self.assertTrue(low <= DEFAULTS[name] <= high, name)
 
 
-class Tiers(unittest.TestCase):
-    def test_basic_ignores_stored_advanced_and_expert_values(self):
-        s = EngineSettings.from_model(row(config_tier="basic", recent_message_limit=25, rag_top_k=15, max_candidate_count=9,
-                                         rag_distance_threshold=0.5, low_confidence_reply_mode="decline"))
-        self.assertEqual(s.recent_message_limit, 10, "basic: recent_message_limit cố định = 10")
-        self.assertEqual(s.rag_top_k, DEFAULTS["rag_top_k"])
-        self.assertEqual(s.rag_distance_threshold, DEFAULTS["rag_distance_threshold"])
-        self.assertEqual(s.low_confidence_reply_mode, "ask_clarify")
+class FixedToggles(unittest.TestCase):
+    """Các công tắc bật/tắt tính năng không còn đọc từ DB — luôn dùng FIXED_TOGGLES bất kể giá trị đang lưu."""
 
-    def test_basic_honours_the_three_switches(self):
-        s = EngineSettings.from_model(row(config_tier="basic", rag_enabled=False, clarification_enabled=False,
-                                         structured_memory_enabled=False, summary_enabled=False))
-        self.assertFalse(s.rag_enabled)
-        self.assertFalse(s.clarification_enabled)
-        self.assertFalse(s.structured_memory_enabled)
-        self.assertFalse(s.summary_enabled)
+    def test_stored_true_values_are_overridden_by_fixed_toggles(self):
+        s = EngineSettings.from_model(row(**{name: True for name in FIXED_TOGGLES}))
+        for name, expected in FIXED_TOGGLES.items():
+            self.assertEqual(getattr(s, name), expected, name)
 
-    def test_advanced_honours_its_fields_but_not_expert_only_ones(self):
-        s = EngineSettings.from_model(row(config_tier="advanced", recent_message_limit=20, rag_top_k=12, rag_distance_threshold=1.2,
-                                         max_clarification_turns=4, max_candidate_count=9, memory_min_confidence=0.2))
-        self.assertEqual((s.recent_message_limit, s.rag_top_k, s.rag_distance_threshold, s.max_clarification_turns), (20, 12, 1.2, 4))
-        self.assertEqual(s.max_candidate_count, DEFAULTS["max_candidate_count"])
-        self.assertEqual(s.memory_min_confidence, DEFAULTS["memory_min_confidence"])
+    def test_stored_false_values_are_overridden_by_fixed_toggles(self):
+        s = EngineSettings.from_model(row(**{name: False for name in FIXED_TOGGLES}))
+        for name, expected in FIXED_TOGGLES.items():
+            self.assertEqual(getattr(s, name), expected, name)
 
-    def test_expert_honours_everything(self):
-        s = EngineSettings.from_model(row(config_tier="expert", max_candidate_count=9, low_confidence_reply_mode="decline",
-                                         low_confidence_decline_message="  Xin lỗi.  "))
-        self.assertEqual(s.max_candidate_count, 9)
+    def test_structured_memory_is_fixed_off(self):
+        self.assertFalse(FIXED_TOGGLES["structured_memory_enabled"], "trùng chức năng với tóm tắt hội thoại")
+
+    def test_engine_settings_has_no_config_tier(self):
+        self.assertFalse(hasattr(EngineSettings.defaults(), "config_tier"), "khái niệm mức cấu hình đã bị bỏ")
+
+
+class NoTierGating(unittest.TestCase):
+    """Mọi thông số số (RANGES) luôn honour giá trị đang lưu — không còn khái niệm mức cấu hình giới hạn trường nào."""
+
+    def test_every_numeric_field_honours_stored_value(self):
+        stored = dict(
+            recent_message_limit=20, rag_top_k=12, rag_distance_threshold=1.2,
+            max_candidate_count=9, memory_min_confidence=0.2, recent_token_limit=3000, summary_max_tokens=800,
+            memory_max_items=15, intent_confidence_threshold=0.5, slot_completion_threshold=0.5, rag_rerank_top_n=6,
+            rag_max_context_tokens=2500, context_pressure_warning=0.5, context_pressure_hard_limit=0.6,
+            max_context_tokens=9000,
+        )
+        s = EngineSettings.from_model(row(**stored))
+        for name, expected in stored.items():
+            self.assertEqual(getattr(s, name), expected, name)
+
+    def test_low_confidence_reply_mode_and_messages_always_honoured(self):
+        s = EngineSettings.from_model(row(low_confidence_reply_mode="decline", low_confidence_decline_message="  Xin lỗi.  "))
         self.assertEqual(s.low_confidence_reply_mode, "decline")
         self.assertEqual(s.low_confidence_decline_message, "Xin lỗi.")
-
-    def test_unknown_tier_is_basic(self):
-        self.assertEqual(EngineSettings.from_model(row(config_tier="root")).config_tier, "basic")
-
-    def test_downgrading_expert_to_basic_drops_hidden_values(self):
-        stored = dict(rag_distance_threshold=0.3, max_candidate_count=1)
-        self.assertEqual(EngineSettings.from_model(row(config_tier="expert", **stored)).max_candidate_count, 1)
-        self.assertEqual(EngineSettings.from_model(row(config_tier="basic", **stored)).max_candidate_count, DEFAULTS["max_candidate_count"])
 
 
 class Robustness(unittest.TestCase):

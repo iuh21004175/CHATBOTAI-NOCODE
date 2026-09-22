@@ -151,10 +151,18 @@ class BranchesThroughPipeline(unittest.TestCase):
         result, _, _ = run(request(), llm_json(), retrieved=retrieval(count=7, gap=0.4))
         self.assertEqual(result.decision, Decision.ANSWER)
 
-    def test_clarification_cap_forces_answer_and_resets_counter(self):
-        snap = ConversationSnapshot(clarification_turns_used=2)
+    def test_clarification_has_no_cap_and_keeps_asking(self):
+        # Không còn trần số lượt liên tiếp: dù đã hỏi nhiều lượt, vẫn tiếp tục CLARIFY thay vì bị ép trả lời.
+        snap = ConversationSnapshot(clarification_turns_used=5)
         reply = llm_json(intent_confidence=0.3, self_assessed_confidence=0.2)
         result, _, _ = run(request(snapshot=snap), reply)
+        self.assertEqual(result.decision, Decision.CLARIFY)
+        self.assertFalse(result.trace["forced_answer"])
+        self.assertEqual(result.state_update.clarification_turns_used, 6)
+
+    def test_clarification_disabled_forces_answer_with_note(self):
+        reply = llm_json(intent_confidence=0.3, self_assessed_confidence=0.2)
+        result, _, _ = run(request(clarification_enabled=False), reply)
         self.assertEqual(result.decision, Decision.ANSWER)
         self.assertTrue(result.trace["forced_answer"])
         self.assertIn("Lưu ý", result.reply)
@@ -258,9 +266,16 @@ class ScopeNarrowing(unittest.TestCase):
         self.assertEqual(result.decision, Decision.CLARIFY)
         self.assertEqual(result.state_update.clarification_turns_used, 2)
 
-    def test_after_max_turns_answers_from_the_best_chunks_that_fit(self):
-        snap = ConversationSnapshot(clarification_turns_used=2)
-        result, llm, _ = run(self.req(snapshot=snap), llm_json(), retrieved=retrieval(count=6, passages=self.big_passages()))
+    def test_no_cap_keeps_narrowing_after_many_turns(self):
+        # Không còn trần số lượt liên tiếp: dù đã hỏi rất nhiều lượt, vẫn tiếp tục CLARIFY nếu còn vượt ngân sách —
+        # AI Agent tự quyết định khi nào dừng, không bị ép trả lời sau N lượt.
+        snap = ConversationSnapshot(clarification_turns_used=99)
+        result, _, _ = run(self.req(snapshot=snap), self.NARROW, retrieved=retrieval(count=6, passages=self.big_passages()))
+        self.assertEqual(result.decision, Decision.CLARIFY)
+        self.assertEqual(result.state_update.clarification_turns_used, 100)
+
+    def test_clarification_switch_off_never_narrows(self):
+        result, llm, _ = run(self.req(clarification_enabled=False), llm_json(), retrieved=retrieval(count=6, passages=self.big_passages()))
         self.assertEqual(result.decision, Decision.ANSWER)
         self.assertIsNone(result.trace["context_overflow"])
         last = llm.calls[0][-1]["content"]
@@ -268,16 +283,6 @@ class ScopeNarrowing(unittest.TestCase):
         self.assertIn("# Mục 0", last, "giữ chunk liên quan nhất")
         self.assertNotIn("# Mục 5", last, "chunk kém liên quan nhất bị bỏ để vừa ngân sách")
         self.assertEqual(result.state_update.clarification_turns_used, 0)
-
-    def test_respects_max_clarification_turns_setting(self):
-        snap = ConversationSnapshot(clarification_turns_used=1)
-        result, _, _ = run(self.req(snapshot=snap, max_clarification_turns=1), llm_json(), retrieved=retrieval(count=6, passages=self.big_passages()))
-        self.assertEqual(result.decision, Decision.ANSWER)
-
-    def test_clarification_switch_off_never_narrows(self):
-        result, llm, _ = run(self.req(clarification_enabled=False), llm_json(), retrieved=retrieval(count=6, passages=self.big_passages()))
-        self.assertEqual(result.decision, Decision.ANSWER)
-        self.assertNotIn("LƯU Ý", llm.calls[0][-1]["content"])
 
     def test_fits_the_budget_means_no_narrowing(self):
         result, llm, _ = run(self.req(), llm_json(), retrieved=retrieval(count=2, passages=[passage("ngắn", doc=1), passage("cũng ngắn", doc=2)]))

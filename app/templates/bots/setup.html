@@ -2,7 +2,6 @@
 {% block title %}Thiết lập — {{ bot.name }}{% endblock %}
 {% block workspace_extra_css %}
 <style>
-#engine-card [hidden]{display:none !important;} /* .toggle-row đặt display:flex nên thuộc tính hidden mặc định không đủ */
 /* ---- Chọn mẫu trợ lý ---- */
 .tpl-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;}
 .tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;}
@@ -234,57 +233,8 @@
 
       <div class="eng-sep"></div>
 
-      {% call lbl('config_tier', 'Mức cấu hình') %}
-        Chọn mức độ chi tiết của các thông số điều khiển cách AI ghi nhớ, tra cứu tài liệu và hỏi lại.
-        {% for t in engine.tiers %}<span class="tip-line"><b>{{ t.name }}:</b> {{ t.desc }}</span>{% endfor %}
-        <span class="tip-line">Thông số không nằm trong mức đang chọn luôn dùng giá trị mặc định của hệ thống — hạ mức không để lại giá trị ẩn.</span>
-      {% endcall %}
-      <select class="field" id="config_tier" name="config_tier">
-        {% for t in engine.tiers %}
-        <option value="{{ t.value }}" data-desc="{{ t.desc }}" {{ "selected" if engine.tier == t.value else "" }}>{{ t.label }}</option>
-        {% endfor %}
-      </select>
-      <div class="hint" id="tier-desc" aria-live="polite">{% for t in engine.tiers %}{% if t.value == engine.tier %}{{ t.desc }}{% endif %}{% endfor %}</div>
-
-      <div class="toggle-row" data-tiers="basic advanced">
-        <div>
-          <div class="toggle-row-title">Bộ nhớ hội thoại
-            {% call tip('tip-memory_enabled', 'Bộ nhớ hội thoại') %}
-              Ghi nhớ điều khách đã nói và tóm tắt khi hội thoại dài, để AI không quên phần đầu cuộc trò chuyện. Tắt: AI chỉ dựa vào các tin gần nhất.
-            {% endcall %}
-          </div>
-          <div class="toggle-row-desc">Ghi nhớ điều khách đã nói và tóm tắt khi hội thoại dài</div>
-        </div>
-        <input type="checkbox" id="memory_enabled" name="memory_enabled" {{ "checked" if settings.structured_memory_enabled and settings.summary_enabled else "" }} style="display:none;">
-        <button type="button" class="toggle {{ 'on' if settings.structured_memory_enabled and settings.summary_enabled else '' }}" data-toggle-target="memory_enabled" aria-label="Bộ nhớ hội thoại"><div class="dot"></div></button>
-      </div>
-      <div class="toggle-row" data-tiers="basic advanced expert">
-        <div>
-          <div class="toggle-row-title">Cơ sở tri thức (RAG)
-            {% call tip('tip-rag_enabled', 'Cơ sở tri thức (RAG)') %}
-              AI tra cứu các tài liệu bạn đã tải ở Bước 2 rồi dựa vào đó để trả lời (giá, chính sách, thông tin sản phẩm...). Tắt: AI chỉ trả lời bằng kiến thức chung và chỉ dẫn, không dùng tài liệu.
-            {% endcall %}
-          </div>
-          <div class="toggle-row-desc">Tra cứu tài liệu ở Bước 2 để trả lời</div>
-        </div>
-        <input type="checkbox" id="rag_enabled" name="rag_enabled" {{ "checked" if settings.rag_enabled else "" }} style="display:none;">
-        <button type="button" class="toggle {{ 'on' if settings.rag_enabled else '' }}" data-toggle-target="rag_enabled" aria-label="Cơ sở tri thức (RAG)"><div class="dot"></div></button>
-      </div>
-      <div class="toggle-row" data-tiers="basic advanced expert">
-        <div>
-          <div class="toggle-row-title">AI tự hỏi làm rõ
-            {% call tip('tip-clarification_enabled', 'AI tự hỏi làm rõ') %}
-              Khi câu hỏi mơ hồ hoặc chưa đủ thông tin, AI hỏi lại khách thay vì đoán. Tắt: AI luôn cố trả lời ngay, dễ đoán sai ý khách.
-            {% endcall %}
-          </div>
-          <div class="toggle-row-desc">Hỏi lại khách khi chưa đủ thông tin thay vì đoán</div>
-        </div>
-        <input type="checkbox" id="clarification_enabled" name="clarification_enabled" {{ "checked" if settings.clarification_enabled else "" }} style="display:none;">
-        <button type="button" class="toggle {{ 'on' if settings.clarification_enabled else '' }}" data-toggle-target="clarification_enabled" aria-label="AI tự hỏi làm rõ"><div class="dot"></div></button>
-      </div>
-
       {% for f in engine.fields %}
-      <div data-tiers="{{ 'advanced expert' if f.tier == 'advanced' else 'expert' }}" style="margin-top:14px;">
+      <div style="margin-top:14px;">
         {# Nhãn không in giá trị: giá trị đang chọn nằm ở ô nhập, hoặc ở ô hiển thị cạnh thanh trượt #}
         {% call lbl(f.name, f.label) %}
           {{ f.help }}
@@ -306,20 +256,7 @@
       </div>
       {% endfor %}
 
-      {% for name, title, desc, help in engine.expert_toggles %}
-      <div class="toggle-row" data-tiers="expert">
-        <div>
-          <div class="toggle-row-title">{{ title }}
-            {% call tip('tip-' ~ name, title) %}{{ help }}{% endcall %}
-          </div>
-          <div class="toggle-row-desc">{{ desc }}</div>
-        </div>
-        <input type="checkbox" id="{{ name }}" name="{{ name }}" {{ "checked" if settings[name] else "" }} style="display:none;">
-        <button type="button" class="toggle {{ 'on' if settings[name] else '' }}" data-toggle-target="{{ name }}" aria-label="{{ title }}"><div class="dot"></div></button>
-      </div>
-      {% endfor %}
-
-      <div data-tiers="expert" style="margin-top:14px;">
+      <div style="margin-top:14px;">
         {% call lbl('low_confidence_reply_mode', 'Khi không có thông tin phù hợp') %}
           Cách AI phản hồi khi không đoạn tài liệu nào đủ liên quan tới câu hỏi.
           <span class="tip-line"><b>Hỏi lại khách:</b> AI dùng câu hỏi lại bên dưới để khách nói rõ hơn; hợp khi câu hỏi có thể chỉ chưa đủ ý.</span>
@@ -426,23 +363,8 @@
   bindSlider('temperature', 'temperature-value', 1);
   bindSlider('rag_distance_threshold', 'rag_distance_threshold-value', 2);
 
-  // Mức cấu hình: chỉ hiện các thông số thuộc mức đang chọn; ô bị ẩn bị vô hiệu hóa để không gửi lên (server cũng bỏ qua)
-  var tierSelect = byId('config_tier');
-  var tierDesc = byId('tier-desc');
-  function applyTier() {
-    var tier = tierSelect.value;
-    tierDesc.textContent = tierSelect.options[tierSelect.selectedIndex].dataset.desc || '';
-    document.querySelectorAll('#engine-card [data-tiers]').forEach(function (section) {
-      var visible = section.dataset.tiers.split(' ').indexOf(tier) !== -1;
-      section.hidden = !visible;
-      section.querySelectorAll('input,select,textarea').forEach(function (el) { el.disabled = !visible; });
-    });
-  }
-  tierSelect.addEventListener('change', applyTier);
-  applyTier();
-
   // ---------------- Chi phí ước tính mỗi câu hỏi ----------------
-  // Server tính (cùng phép kiểm tra + quy tắc tier như lúc lưu) từ cấu hình đang chọn trên form; chưa lưu cũng cập nhật.
+  // Server tính (cùng phép kiểm tra như lúc lưu) từ cấu hình đang chọn trên form; chưa lưu cũng cập nhật.
   var setupForm = byId('setup-form'), costBox = byId('cost-box');
   var costSeq = 0, costTimer = null;
   function fmtVnd(n) {

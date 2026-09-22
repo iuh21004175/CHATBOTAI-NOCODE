@@ -81,11 +81,11 @@ def run_turn(
     # candidate_count == 0 / spread không áp dụng — quy tắc "không bịa" trong prompt vẫn còn hiệu lực.
     rag_used = settings.rag_enabled and not retrieval.knowledge_empty
 
-    # Chỉ được hỏi thu hẹp khi còn lượt hỏi làm rõ; hết lượt (hoặc tắt hỏi làm rõ) thì đưa các chunk liên quan nhất còn vừa
-    # ngân sách và trả lời — không hỏi vô hạn.
+    # Chỉ được hỏi thu hẹp khi hỏi làm rõ đang bật; tắt thì đưa các chunk liên quan nhất còn vừa ngân sách và trả lời
+    # ngay — không còn trần số lượt liên tiếp (AI Agent tự quyết định khi nào đủ thông tin để trả lời).
     plan = builder.build_plan(
         settings, request.intents, request.snapshot, recent, retrieval.passages, request.question,
-        allow_scope_narrowing=rag_used and decision_mod.can_clarify(settings, request.snapshot.clarification_turns_used),
+        allow_scope_narrowing=rag_used and decision_mod.can_clarify(settings),
     )
     pressure_before = plan.pressure
     level = builder.pressure_level(pressure_before, settings)

@@ -333,7 +333,9 @@ class ScopeNarrowingPlan(unittest.TestCase):
 
 class Messages(unittest.TestCase):
     def build(self, **overrides):
-        s = settings(instructions="Bạn là trợ lý của cửa hàng An Phát.", **overrides)
+        # structured_memory_enabled cố định tắt trong sản phẩm (FIXED_TOGGLES); bật lại ở đây để kiểm tra riêng cơ chế
+        # dựng khối bộ nhớ vào prompt vẫn đúng (vẫn còn trong code, chỉ không được gọi qua luồng trả lời thật nữa).
+        s = settings(instructions="Bạn là trợ lý của cửa hàng An Phát.", structured_memory_enabled=True, **overrides)
         snap = ConversationSnapshot(summary="Khách cần 3 máy tính.", memory=[MemoryItem("constraint", "ngân sách", "30 triệu", 0.9)])
         recent = RecentMessageSelector(10, 2000).select(rows(4))
         plan = builder.build_plan(s, [IntentSpec("ask_price", "Hỏi giá", ("product",), ())], snap, recent,

@@ -1,10 +1,12 @@
 """Cấu hình hiệu lực của Decision Engine cho 1 lượt trả lời.
 
-Nguồn duy nhất cho: giá trị mặc định (DEFAULTS), khoảng hợp lệ (RANGES), và trường nào được sửa ở tier nào
-(TIER_FIELDS). Cột trong app/models.py:BotSettings có server_default trùng DEFAULTS (test_settings kiểm tra khớp).
+Nguồn duy nhất cho: giá trị mặc định (DEFAULTS), khoảng hợp lệ (RANGES) và các công tắc bật/tắt tính năng cố định
+(FIXED_TOGGLES). Cột trong app/models.py:BotSettings có server_default trùng DEFAULTS (test_settings kiểm tra khớp).
 
-Quy tắc tier: trường KHÔNG thuộc tier hiện tại luôn dùng giá trị mặc định, bất kể giá trị đang lưu — để hạ tier
-(expert -> basic) không để lại các giá trị ẩn mà chủ bot không còn nhìn/sửa được.
+Các công tắc bật/tắt tính năng (rag_enabled, summary_enabled, structured_memory_enabled, intent_tracking_enabled,
+slot_filling_enabled, clarification_enabled) không còn cho chủ bot chỉnh: hệ thống đã cố định giá trị vận hành
+(FIXED_TOGGLES) áp dụng cho mọi bot, bất kể giá trị đang lưu trong DB (cột DB vẫn còn nhưng không còn được đọc).
+Mọi thông số còn lại (RANGES) luôn có thể chỉnh — không còn khái niệm "mức cấu hình" giới hạn trường nào hiện/ẩn.
 """
 from __future__ import annotations
 
@@ -35,7 +37,6 @@ DEFAULTS: dict = {
     "rag_max_context_tokens": 3000,
     "max_candidate_count": 5,
     "clarification_enabled": True,
-    "max_clarification_turns": 2,
     "context_pressure_warning": 0.80,
     "context_pressure_hard_limit": 0.90,
     "low_confidence_reply_mode": "ask_clarify",
@@ -59,34 +60,27 @@ RANGES: dict[str, tuple[type, float, float]] = {
     "rag_distance_threshold": (float, 0.20, 1.90),
     "rag_max_context_tokens": (int, 200, 8000),
     "max_candidate_count": (int, 1, 20),
-    "max_clarification_turns": (int, 0, 5),
     "context_pressure_warning": (float, 0.30, 0.95),
     "context_pressure_hard_limit": (float, 0.50, 0.99),
     "max_context_tokens": (int, 2000, 100000),
 }
 
-BOOLEAN_FIELDS = (
-    "rag_enabled", "summary_enabled", "structured_memory_enabled", "intent_tracking_enabled",
-    "slot_filling_enabled", "clarification_enabled",
-)
 REPLY_MODES = ("decline", "ask_clarify")
-TIERS = ("basic", "advanced", "expert")
 
-# Basic: 3 công tắc (bộ nhớ hội thoại = structured_memory_enabled + summary_enabled gộp 1 công tắc).
-_BASIC = frozenset({"rag_enabled", "clarification_enabled", "structured_memory_enabled", "summary_enabled"})
-_ADVANCED = _BASIC | {
-    "recent_message_limit", "summary_trigger_tokens", "rag_max_context_tokens", "rag_top_k",
-    "rag_distance_threshold", "max_clarification_turns",
+# Giá trị cố định của các công tắc bật/tắt tính năng — không còn đọc từ DB/form. "structured_memory_enabled" tắt hẳn
+# vì trùng chức năng với "summary_enabled" (tóm tắt hội thoại dài đã đủ để AI không quên phần đầu hội thoại).
+FIXED_TOGGLES: dict[str, bool] = {
+    "rag_enabled": True,
+    "summary_enabled": True,
+    "structured_memory_enabled": False,
+    "intent_tracking_enabled": True,
+    "slot_filling_enabled": True,
+    "clarification_enabled": True,
 }
-TIER_FIELDS: dict[str, frozenset] = {"basic": _BASIC, "advanced": _ADVANCED, "expert": frozenset(DEFAULTS)}
 
 # Ngân sách JSON có cấu trúc (intent, slots, memory_updates, confidence...) cộng thêm vào max_tokens của câu trả lời;
 # thiếu phần này JSON bị cắt ngang ở max_tokens -> không parse được.
 JSON_OVERHEAD_TOKENS = 600
-
-
-def normalize_tier(value) -> str:
-    return value if value in TIERS else "basic"
 
 
 def clamp(name: str, value):
@@ -103,7 +97,6 @@ def clamp(name: str, value):
 
 @dataclass(frozen=True)
 class EngineSettings:
-    config_tier: str
     language: str
     instructions: str
     temperature: float
@@ -127,7 +120,6 @@ class EngineSettings:
     rag_max_context_tokens: int
     max_candidate_count: int
     clarification_enabled: bool
-    max_clarification_turns: int
     context_pressure_warning: float
     context_pressure_hard_limit: float
     low_confidence_reply_mode: str
@@ -138,18 +130,16 @@ class EngineSettings:
     @classmethod
     def from_model(cls, row) -> "EngineSettings":
         """row: app.models.BotSettings (hoặc bất kỳ đối tượng có cùng thuộc tính)."""
-        tier = normalize_tier(getattr(row, "config_tier", None))
-        editable = TIER_FIELDS[tier]
-
         values: dict = {}
         for name, default in DEFAULTS.items():
+            if name in FIXED_TOGGLES:  # công tắc cố định: không đọc DB/form
+                values[name] = FIXED_TOGGLES[name]
+                continue
             stored = getattr(row, name, None)
-            if name not in editable or stored is None:
+            if stored is None:
                 values[name] = default
             elif name in RANGES:
                 values[name] = clamp(name, stored)
-            elif name in BOOLEAN_FIELDS:
-                values[name] = bool(stored)
             elif name == "low_confidence_reply_mode":
                 values[name] = stored if stored in REPLY_MODES else default
             else:  # 2 câu trả lời sẵn có của chủ bot
@@ -165,7 +155,6 @@ class EngineSettings:
         max_tokens = getattr(row, "max_tokens", None)
         language = getattr(row, "language", None)
         return cls(
-            config_tier=tier,
             language=language if language in ("vi", "en") else DEFAULT_LANGUAGE,
             instructions=(getattr(row, "instructions", None) or "").strip(),
             temperature=0.7 if temperature is None else float(temperature),  # 0 là giá trị hợp lệ
@@ -178,6 +167,7 @@ class EngineSettings:
         """Cấu hình mặc định (dùng cho test và khung chat thử chưa có bản ghi)."""
         base = {f.name: None for f in fields(cls)}
         base.update(DEFAULTS)
-        base.update(config_tier="expert", language=DEFAULT_LANGUAGE, instructions="", temperature=0.7, max_tokens=500)
+        base.update(FIXED_TOGGLES)
+        base.update(language=DEFAULT_LANGUAGE, instructions="", temperature=0.7, max_tokens=500)
         base.update(overrides)
         return cls(**base)

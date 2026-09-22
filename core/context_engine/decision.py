@@ -49,7 +49,7 @@ class DecisionResult:
     decision: Decision
     reasons: list[str] = field(default_factory=list)
     text_source: str = "proposed_answer"  # proposed_answer | proposed_clarification_question | configured_clarify | configured_decline
-    forced_answer: bool = False  # CLARIFY bị ép thành ANSWER do hết lượt/tắt hỏi làm rõ
+    forced_answer: bool = False  # CLARIFY bị ép thành ANSWER do tắt hỏi làm rõ
 
 
 # ---- AmbiguityDetector ----
@@ -81,10 +81,11 @@ def is_ambiguous_reference(question: str) -> bool:
 
 # ---- ClarificationController ----
 
-def can_clarify(settings: EngineSettings, turns_used: int) -> bool:
-    """Hỏi làm rõ khi được bật và chưa hết max_clarification_turns lượt LIÊN TIẾP (mỗi lượt CLARIFY chỉ có đúng 1 câu hỏi vì
-    LLM chỉ trả 1 proposed_clarification_question) — không hỏi lại vô hạn."""
-    return settings.clarification_enabled and turns_used < settings.max_clarification_turns
+def can_clarify(settings: EngineSettings) -> bool:
+    """Hỏi làm rõ khi được bật — không còn trần số lượt liên tiếp: AI Agent tự quyết định khi nào đủ thông tin để
+    trả lời thay vì bị ép dừng hỏi sau N lượt (mỗi lượt CLARIFY chỉ có đúng 1 câu hỏi vì LLM chỉ trả 1
+    proposed_clarification_question)."""
+    return settings.clarification_enabled
 
 
 # ---- Answerability Engine ----
@@ -95,7 +96,7 @@ def decide(signals: Signals, settings: EngineSettings, output: StructuredOutput)
         reasons.append("context_compressed")
     if signals.is_ambiguous_reference:
         reasons.append("ambiguous_reference")
-    clarify_allowed = can_clarify(settings, signals.clarification_turns_used)
+    clarify_allowed = can_clarify(settings)
 
     # 1. Không có chunk nào đạt ngưỡng liên quan -> KHÔNG dùng proposed_answer của LLM (không trả lời tự tin dựa trên
     #    ngữ cảnh dưới ngưỡng), dùng câu chủ bot cấu hình sẵn.
@@ -104,7 +105,7 @@ def decide(signals: Signals, settings: EngineSettings, output: StructuredOutput)
         if settings.low_confidence_reply_mode == "ask_clarify" and clarify_allowed:
             return DecisionResult(Decision.CLARIFY, reasons, "configured_clarify")
         if settings.low_confidence_reply_mode == "ask_clarify":
-            reasons.append("clarification_limit_reached" if settings.clarification_enabled else "clarification_disabled")
+            reasons.append("clarification_disabled")
         return DecisionResult(Decision.DECLINE, reasons, "configured_decline")
 
     # 2-4. Thiếu thông tin để trả lời chính xác -> hỏi làm rõ (nhánh nào khớp trước thì dùng nhánh đó)
@@ -128,21 +129,21 @@ def decide(signals: Signals, settings: EngineSettings, output: StructuredOutput)
         reasons.append(wants_clarify)
         if clarify_allowed:
             return DecisionResult(Decision.CLARIFY, reasons, "proposed_clarification_question")
-        # Hết lượt / tắt hỏi làm rõ: ép trả lời thay vì hỏi vô hạn
-        reasons.append("clarification_limit_reached" if settings.clarification_enabled else "clarification_disabled")
-        return _answer_or_fallback(output, reasons, settings, signals, forced=True)
+        # Hỏi làm rõ đang tắt: ép trả lời thay vì hỏi
+        reasons.append("clarification_disabled")
+        return _answer_or_fallback(output, reasons, settings, forced=True)
 
-    return _answer_or_fallback(output, reasons, settings, signals, forced=False)
+    return _answer_or_fallback(output, reasons, settings, forced=False)
 
 
 def _answer_or_fallback(
-    output: StructuredOutput, reasons: list[str], settings: EngineSettings, signals: Signals, *, forced: bool
+    output: StructuredOutput, reasons: list[str], settings: EngineSettings, *, forced: bool
 ) -> DecisionResult:
     if output.proposed_answer:
         return DecisionResult(Decision.ANSWER, reasons, "proposed_answer", forced_answer=forced)
     # LLM tự cho là chưa đủ thông tin (chỉ đưa câu hỏi làm rõ) dù mọi tín hiệu backend đều ổn
     reasons.append("empty_proposed_answer")
-    if output.proposed_clarification_question and can_clarify(settings, signals.clarification_turns_used):
+    if output.proposed_clarification_question and can_clarify(settings):
         return DecisionResult(Decision.CLARIFY, reasons, "proposed_clarification_question")
     return DecisionResult(Decision.DECLINE, reasons, "configured_decline")
 

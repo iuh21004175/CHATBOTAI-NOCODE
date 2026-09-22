@@ -16,7 +16,7 @@ class SummaryScheduling(DbCase):
         from workers import context_jobs
 
         self.worker, self.redis = context_jobs, redis_client
-        self.set_settings(config_tier="advanced", recent_message_limit=4)
+        self.set_settings(recent_message_limit=4)
         self.conv = self.conversation()
         for i in range(10):
             self.add_message(self.conv, "customer" if i % 2 == 0 else "bot", f"tin so {i}")

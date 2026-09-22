@@ -89,8 +89,11 @@ class ConfigDrivesCost(unittest.TestCase):
 
     def test_when_context_budget_binds_longer_instructions_squeeze_rag_not_total(self):
         """Ngân sách ngữ cảnh đã đầy: chỉ dẫn dài hơn chiếm chỗ của tài liệu (ContextBudgetManager) nên cận trên không tăng thêm."""
+        # structured_memory_enabled cố định tắt trong sản phẩm (FIXED_TOGGLES); bật lại ở đây để tái tạo đúng kịch bản
+        # ngân sách đã đầy ngay cả với chỉ dẫn ngắn (không phụ thuộc việc bộ nhớ có đang bật hay không).
         rag = lambda r: next(c for c in r["components"] if c["key"] == "rag")["max"]
-        short, long = estimate(instructions="Ngắn."), estimate(instructions="Chỉ dẫn rất dài. " * 300)
+        short = estimate(instructions="Ngắn.", structured_memory_enabled=True)
+        long = estimate(instructions="Chỉ dẫn rất dài. " * 300, structured_memory_enabled=True)
         self.assertLess(rag(long), rag(short))
         self.assertEqual(hi(long), hi(short))
 
@@ -127,8 +130,11 @@ class ConfigDrivesCost(unittest.TestCase):
         self.assertIsNone(off["summary_job"])
 
     def test_memory_and_summary_sizes_follow_their_limits(self):
+        # structured_memory_enabled cố định tắt trong sản phẩm (FIXED_TOGGLES); bật lại ở đây để kiểm tra riêng công
+        # thức ước tính chi phí theo memory_max_items vẫn đúng.
         get = lambda r, k: next(c for c in r["components"] if c["key"] == k)["max"]
-        self.assertGreater(get(estimate(memory_max_items=60), "memory"), get(estimate(memory_max_items=10), "memory"))
+        self.assertGreater(get(estimate(memory_max_items=60, structured_memory_enabled=True), "memory"),
+                            get(estimate(memory_max_items=10, structured_memory_enabled=True), "memory"))
         self.assertGreater(get(estimate(summary_max_tokens=1000), "summary"), get(estimate(summary_max_tokens=200), "summary"))
 
     def test_summary_job_follows_trigger_and_max_length(self):

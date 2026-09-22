@@ -103,118 +103,85 @@ def optimize_instructions(text: str) -> str:
     return result
 
 
-# ---- Cấu hình Decision Engine theo tier (Bước 1) ----
+# ---- Cấu hình Decision Engine (Bước 1) ----
+# Các công tắc bật/tắt tính năng (RAG, tóm tắt, ghi nhớ, theo dõi ý định, thu thập thông tin bắt buộc, hỏi làm rõ) đã
+# được cố định ở core.context_engine.settings.FIXED_TOGGLES — không còn hiển thị/chỉnh trên giao diện.
 
 MAX_LOW_CONFIDENCE_MESSAGE_CHARS = 500
 
-# Trường hiển thị ở tier advanced/expert (tier basic chỉ có 3 công tắc dựng riêng trong template). "tier" = tier THẤP NHẤT
-# thấy được trường đó. step = bước của ô nhập; khoảng hợp lệ + mặc định lấy từ core/context_engine/settings (RANGES, DEFAULTS).
+# Mọi trường dưới đây luôn hiển thị và chỉnh được (không còn phân theo mức cấu hình). step = bước của ô nhập;
+# khoảng hợp lệ + mặc định lấy từ core/context_engine/settings (RANGES, DEFAULTS).
 # Nội dung tooltip (?) cạnh nhãn: help = tác dụng; low/high = ảnh hưởng khi chỉnh nhỏ/lớn; note = ghi chú thêm.
 ENGINE_FIELDS = [
-    {"name": "recent_message_limit", "label": "Số tin gần nhất đưa vào ngữ cảnh", "tier": "advanced", "step": 1,
+    {"name": "recent_message_limit", "label": "Số tin gần nhất đưa vào ngữ cảnh", "step": 1,
      "help": "Số tin nhắn gần nhất (của khách và của AI) được gửi nguyên văn cho AI mỗi lượt để hiểu mạch trò chuyện.",
      "low": "AI dễ quên điều vừa nói nhưng nhanh và tốn ít token hơn.",
      "high": "AI theo mạch hội thoại tốt hơn nhưng câu lệnh dài hơn, tốn token và chậm hơn."},
-    {"name": "summary_trigger_tokens", "label": "Tóm tắt hội thoại khi các tin chưa tóm tắt vượt (token)", "tier": "advanced", "step": 100,
+    {"name": "summary_trigger_tokens", "label": "Tóm tắt hội thoại khi các tin chưa tóm tắt vượt (token)", "step": 100,
      "help": "Khi phần hội thoại chưa được tóm tắt vượt mức này, hệ thống tóm tắt phần cũ ở nền để AI vẫn nhớ khi hội thoại dài.",
      "low": "Tóm tắt sớm và thường xuyên hơn, tốn thêm lượt gọi AI ở nền.",
      "high": "Giữ tin nguyên văn lâu hơn nhưng ngữ cảnh dễ đầy trước khi được tóm tắt."},
-    {"name": "rag_max_context_tokens", "label": "Ngân sách token cho thông tin tra cứu", "tier": "advanced", "step": 100,
-     "help": "Trần token của phần tài liệu đưa cho AI mỗi lượt. Nếu tài liệu tìm được vượt trần này, AI hỏi khách thu hẹp phạm vi "
-             "(khi còn lượt hỏi làm rõ) thay vì trả lời.",
+    {"name": "rag_max_context_tokens", "label": "Ngân sách token cho thông tin tra cứu", "step": 100,
+     "help": "Trần token của phần tài liệu đưa cho AI mỗi lượt. Nếu tài liệu tìm được vượt trần này và hỏi làm rõ đang bật, "
+             "AI hỏi khách thu hẹp phạm vi thay vì trả lời.",
      "low": "Tiết kiệm token nhưng AI dễ phải hỏi thu hẹp hoặc thiếu chi tiết.",
      "high": "Đưa được nhiều tài liệu hơn nhưng câu lệnh dài, tốn chi phí và chậm hơn."},
-    {"name": "rag_top_k", "label": "Số đoạn tài liệu lấy về khi tra cứu", "tier": "advanced", "step": 1,
+    {"name": "rag_top_k", "label": "Số đoạn tài liệu lấy về khi tra cứu", "step": 1,
      "help": "Số đoạn tài liệu giống câu hỏi nhất được lấy về ở bước tra cứu, trước khi lọc theo ngưỡng khoảng cách.",
      "low": "Nhanh và gọn nhưng dễ bỏ sót đoạn liên quan.",
      "high": "Ít bỏ sót hơn nhưng lẫn nhiều đoạn lạc đề cần lọc."},
-    {"name": "rag_distance_threshold", "label": "Ngưỡng khoảng cách tra cứu", "tier": "advanced", "step": 0.05, "slider": True,
+    {"name": "rag_distance_threshold", "label": "Ngưỡng khoảng cách tra cứu", "step": 0.05, "slider": True,
      "help": "Đoạn tài liệu có khoảng cách LỚN HƠN ngưỡng bị loại (khoảng cách càng nhỏ thì càng sát nghĩa với câu hỏi).",
      "low": "Khắt khe: chỉ dùng đoạn rất sát nhưng có thể bỏ sót khi khách hỏi ngắn hoặc không dấu.",
      "high": "Thoáng: ít bỏ sót nhưng dễ lẫn đoạn lạc đề.",
      "note": "Gợi ý: 1,50 (đo trên dữ liệu thật: câu hỏi đúng chủ đề ≈ 1,2–1,5; lạc đề ≥ 1,6)."},
-    {"name": "max_clarification_turns", "label": "Số lượt hỏi làm rõ liên tiếp tối đa", "tier": "advanced", "step": 1,
-     "help": "Quá số lượt này AI phải trả lời thay vì hỏi tiếp. Khi tài liệu tìm được quá dài so với ngân sách, AI cũng hỏi thu hẹp "
-             "phạm vi trong giới hạn số lượt này; khi phạm vi đã đủ nhỏ, AI trả lời ngay.",
-     "low": "Ít làm phiền khách nhưng AI dễ đoán sai ý; bằng 0 nghĩa là không bao giờ hỏi lại.",
-     "high": "AI hỏi kỹ hơn nên trả lời chính xác hơn, nhưng khách phải trả lời nhiều hơn."},
-    {"name": "recent_token_limit", "label": "Trần token của tin gần đây", "tier": "expert", "step": 100,
+    {"name": "recent_token_limit", "label": "Trần token của tin gần đây", "step": 100,
      "help": "Tổng token tối đa của các tin gần đây gửi kèm. Chạm trần thì dừng thêm tin cũ dù chưa đủ số tin ở mục \"Số tin gần nhất\".",
      "low": "Mạch hội thoại ngắn, tiết kiệm token.",
      "high": "Giữ được những tin dài hơn nhưng tốn token."},
-    {"name": "summary_max_tokens", "label": "Độ dài tối đa của bản tóm tắt (token)", "tier": "expert", "step": 50,
+    {"name": "summary_max_tokens", "label": "Độ dài tối đa của bản tóm tắt (token)", "step": 50,
      "help": "Độ dài tối đa của bản tóm tắt hội thoại do hệ thống tạo ở nền.",
      "low": "Tóm tắt cô đọng nhưng dễ mất chi tiết.",
      "high": "Giữ nhiều chi tiết hơn nhưng chiếm nhiều chỗ trong ngữ cảnh."},
-    {"name": "memory_max_items", "label": "Số mục bộ nhớ tối đa mỗi hội thoại", "tier": "expert", "step": 1,
-     "help": "Số mục bộ nhớ (yêu cầu, sở thích, dữ kiện khách đã xác nhận) được lưu tối đa cho mỗi hội thoại; vượt mức thì mục kém quan trọng bị loại.",
-     "low": "Bộ nhớ gọn nhưng có thể không giữ hết điều khách đã nêu.",
-     "high": "Nhớ đầy đủ hơn nhưng bộ nhớ chiếm nhiều chỗ trong ngữ cảnh."},
-    {"name": "memory_min_confidence", "label": "Độ chắc chắn tối thiểu để lưu bộ nhớ", "tier": "expert", "step": 0.05,
-     "help": "Chỉ lưu vào bộ nhớ những thông tin AI đánh giá chắc chắn từ mức này trở lên (thang 0–1).",
-     "low": "Lưu nhiều hơn nhưng dễ lưu nhầm điều AI suy đoán.",
-     "high": "Chỉ lưu điều thật chắc chắn nhưng có thể bỏ sót."},
-    {"name": "intent_confidence_threshold", "label": "Ngưỡng chắc chắn của ý định", "tier": "expert", "step": 0.05,
-     "help": "Nếu độ chắc chắn về ý định của khách thấp hơn ngưỡng này, AI hỏi lại thay vì đoán. Chỉ có tác dụng khi bật \"Theo dõi ý định\".",
+    {"name": "intent_confidence_threshold", "label": "Ngưỡng chắc chắn của ý định", "step": 0.05,
+     "help": "Nếu độ chắc chắn về ý định của khách thấp hơn ngưỡng này, AI hỏi lại thay vì đoán.",
      "low": "Ít hỏi lại nhưng dễ trả lời lệch ý khách.",
      "high": "Hỏi lại nhiều hơn nên chắc ý hơn nhưng dễ làm phiền khách."},
-    {"name": "slot_completion_threshold", "label": "Ngưỡng đủ thông tin bắt buộc", "tier": "expert", "step": 0.05,
-     "help": "Tỉ lệ thông tin bắt buộc khách phải cung cấp (thang 0–1) để AI coi là đủ; dưới ngưỡng, AI hỏi thêm. "
-             "Chỉ có tác dụng khi bật \"Thu thập thông tin bắt buộc\".",
+    {"name": "slot_completion_threshold", "label": "Ngưỡng đủ thông tin bắt buộc", "step": 0.05,
+     "help": "Tỉ lệ thông tin bắt buộc khách phải cung cấp (thang 0–1) để AI coi là đủ; dưới ngưỡng, AI hỏi thêm.",
      "low": "Ít hỏi thêm nhưng có thể thiếu dữ kiện khi xử lý yêu cầu.",
      "high": "Đòi đủ thông tin mới trả lời nên chính xác hơn nhưng hỏi nhiều hơn."},
-    {"name": "rag_rerank_top_n", "label": "Số đoạn giữ lại sau lọc", "tier": "expert", "step": 1,
+    {"name": "rag_rerank_top_n", "label": "Số đoạn giữ lại sau lọc", "step": 1,
      "help": "Số đoạn tài liệu liên quan nhất được giữ lại để đưa cho AI sau khi lọc theo ngưỡng khoảng cách.",
      "low": "Câu lệnh gọn nhưng ít nguồn để AI dựa vào.",
      "high": "Nhiều nguồn hơn nhưng dễ lẫn nhiễu và tốn token."},
-    {"name": "max_candidate_count", "label": "Số nguồn liên quan tối đa trước khi hỏi thu hẹp", "tier": "expert", "step": 1,
+    {"name": "max_candidate_count", "label": "Số nguồn liên quan tối đa trước khi hỏi thu hẹp", "step": 1,
      "help": "Nếu số vùng nội dung khác nhau cùng khớp câu hỏi vượt mức này (và không vùng nào nổi trội), AI hỏi thu hẹp thay vì trả lời.",
      "low": "AI hỏi thu hẹp thường xuyên hơn.",
      "high": "AI ít hỏi thu hẹp hơn nhưng có thể trả lời chung chung."},
-    {"name": "context_pressure_warning", "label": "Ngưỡng cảnh báo áp lực ngữ cảnh", "tier": "expert", "step": 0.05,
+    {"name": "context_pressure_warning", "label": "Ngưỡng cảnh báo áp lực ngữ cảnh", "step": 0.05,
      "help": "Áp lực ngữ cảnh = token đầu vào / tổng ngân sách ngữ cảnh. Vượt ngưỡng này, hệ thống chuyển từ nén nhẹ (chỉ nội dung tra cứu) "
              "sang nén mạnh hơn (bỏ đoạn lặp, đoạn điểm thấp, rút gọn nội dung).",
      "low": "Nén sớm hơn: câu lệnh gọn nhưng có thể mất bớt chi tiết.",
      "high": "Nén muộn hơn: giữ đầy đủ hơn nhưng dễ sát trần ngữ cảnh."},
-    {"name": "context_pressure_hard_limit", "label": "Ngưỡng nén mạnh ngữ cảnh", "tier": "expert", "step": 0.05,
+    {"name": "context_pressure_hard_limit", "label": "Ngưỡng nén mạnh ngữ cảnh", "step": 0.05,
      "help": "Vượt ngưỡng này hệ thống nén tối đa: giảm cả tin lịch sử và dùng bản tóm tắt thay tin gốc. Phải lớn hơn ngưỡng cảnh báo.",
      "low": "Nén tối đa sớm hơn, dễ mất chi tiết hội thoại.",
      "high": "Nén tối đa muộn hơn, giữ chi tiết lâu hơn nhưng sát trần ngữ cảnh."},
-    {"name": "max_context_tokens", "label": "Tổng ngân sách ngữ cảnh (token)", "tier": "expert", "step": 500,
+    {"name": "max_context_tokens", "label": "Tổng ngân sách ngữ cảnh (token)", "step": 500,
      "help": "Tổng ngân sách token của toàn bộ câu lệnh gửi cho AI (chỉ dẫn, bộ nhớ, tóm tắt, tin gần đây, tài liệu, câu hỏi và chỗ cho câu trả lời). "
              "Là mốc để tính áp lực ngữ cảnh và phần dành cho tài liệu.",
      "low": "Nén ngữ cảnh sớm hơn và dành ít chỗ cho tài liệu.",
      "high": "Chứa được nhiều hơn nhưng tốn chi phí và chậm hơn."},
-]
-# (tên cột, tiêu đề, mô tả ngắn hiện dưới tiêu đề, giải thích chi tiết trong tooltip)
-ENGINE_EXPERT_TOGGLES = [
-    ("structured_memory_enabled", "Ghi nhớ thông tin khách nêu", "Lưu yêu cầu/sở thích/dữ kiện khách đã xác nhận.",
-     "AI trích và lưu yêu cầu, sở thích, dữ kiện khách đã xác nhận để dùng ở các lượt sau, kể cả khi tin cũ đã ra khỏi ngữ cảnh. "
-     "Tắt: AI chỉ dựa vào tin gần đây và bản tóm tắt."),
-    ("summary_enabled", "Tóm tắt hội thoại dài", "Tóm tắt nền khi hội thoại vượt ngưỡng token.",
-     "Khi hội thoại vượt ngưỡng token, hệ thống tóm tắt phần cũ ở nền. Tắt: tin cũ bị bỏ khi vượt trần và AI quên phần đầu hội thoại."),
-    ("intent_tracking_enabled", "Theo dõi ý định", "Hỏi lại khi không chắc khách muốn gì.",
-     "AI xác định khách muốn gì và mức chắc chắn; dưới \"Ngưỡng chắc chắn của ý định\" thì hỏi lại. Tắt: AI luôn trả lời theo cách hiểu của nó."),
-    ("slot_filling_enabled", "Thu thập thông tin bắt buộc", "Hỏi thêm khi ý định cần thông tin khách chưa cung cấp.",
-     "Với ý định cần thông tin bắt buộc, AI hỏi thêm cho đủ trước khi trả lời. Tắt: AI trả lời với thông tin đang có."),
-]
-# Mô tả từng mức cấu hình: hiện dưới ô chọn (mức đang chọn) và trong tooltip (cả 3 mức)
-ENGINE_TIER_INFO = [
-    {"value": "basic", "label": "Cơ bản — 3 công tắc", "name": "Cơ bản",
-     "desc": "Chỉ có 3 công tắc: bộ nhớ hội thoại, cơ sở tri thức, AI tự hỏi làm rõ. Mọi thông số khác dùng mặc định của hệ thống — phù hợp với hầu hết trợ lý."},
-    {"value": "advanced", "label": "Nâng cao — chỉnh các thông số chính", "name": "Nâng cao",
-     "desc": "Thêm 6 thông số chính: số tin gần nhất, ngưỡng tóm tắt, ngân sách và số đoạn tra cứu, ngưỡng khoảng cách, số lượt hỏi làm rõ. "
-             "Dùng khi cần tinh chỉnh chất lượng tra cứu hoặc độ dài ngữ cảnh."},
-    {"value": "expert", "label": "Chuyên gia — toàn bộ thông số", "name": "Chuyên gia",
-     "desc": "Mở toàn bộ thông số, công tắc chi tiết và câu phản hồi khi không có thông tin phù hợp. Chỉnh sai có thể khiến AI hỏi lại quá nhiều, "
-             "bỏ sót tài liệu hoặc tốn chi phí."},
 ]
 _ENGINE_LABELS = {f["name"]: f["label"] for f in ENGINE_FIELDS}
 
 
 def _parse_number(name: str, raw: str):
     kind, low, high = ctx_settings.RANGES[name]
-    label = _ENGINE_LABELS[name]
+    # RANGES có vài trường không còn hiển thị trên UI (vd. memory_min_confidence — chỉ có tác dụng khi tính năng ghi
+    # nhớ được bật lại) nhưng vẫn còn chỗ để parse/validate nếu có ai gửi lên; dùng thẳng tên trường làm nhãn dự phòng.
+    label = _ENGINE_LABELS.get(name, name)
     try:
         value = kind(raw)
     except (TypeError, ValueError):
@@ -228,52 +195,38 @@ def _parse_number(name: str, raw: str):
 
 
 def parse_engine_form(form) -> tuple[dict | None, str | None]:
-    """Đọc + kiểm tra cấu hình Decision Engine từ form Bước 1: chỉ nhận trường thuộc tier được gửi lên (trường tier
-    cao hơn bị bỏ qua dù có trong form), giá trị sai báo lỗi thay vì lặng lẽ ép về khoảng hợp lệ. Trả (giá trị, None)
-    hoặc (None, lỗi) — lỗi thì KHÔNG lưu gì (cả form được lưu hoặc không)."""
-    tier = form.get("config_tier")
-    if tier not in ctx_settings.TIERS:
-        return None, "Mức cấu hình không hợp lệ."
-    editable = ctx_settings.TIER_FIELDS[tier]
-    values: dict = {"config_tier": tier}
-
-    values["rag_enabled"] = form.get("rag_enabled") == "on"
-    values["clarification_enabled"] = form.get("clarification_enabled") == "on"
-    if tier == "expert":
-        values["structured_memory_enabled"] = form.get("structured_memory_enabled") == "on"
-        values["summary_enabled"] = form.get("summary_enabled") == "on"
-        values["intent_tracking_enabled"] = form.get("intent_tracking_enabled") == "on"
-        values["slot_filling_enabled"] = form.get("slot_filling_enabled") == "on"
-    else:  # basic/advanced: 1 công tắc "Bộ nhớ hội thoại" điều khiển cả bộ nhớ có cấu trúc lẫn tóm tắt
-        values["structured_memory_enabled"] = values["summary_enabled"] = form.get("memory_enabled") == "on"
+    """Đọc + kiểm tra cấu hình Decision Engine từ form Bước 1: mọi trường số luôn được nhận (không còn giới hạn theo
+    tier), giá trị sai báo lỗi thay vì lặng lẽ ép về khoảng hợp lệ. Trả (giá trị, None) hoặc (None, lỗi) — lỗi thì
+    KHÔNG lưu gì (cả form được lưu hoặc không). Các công tắc bật/tắt tính năng đã cố định (FIXED_TOGGLES), luôn ghi
+    đúng giá trị cố định xuống DB thay vì đọc từ form — DB không còn lưu giá trị khác với giá trị đang thực sự dùng."""
+    values: dict = dict(ctx_settings.FIXED_TOGGLES)
 
     for name in ctx_settings.RANGES:
         raw = form.get(name)
-        if name not in editable or raw is None or str(raw).strip() == "":
-            continue  # không thuộc tier / không gửi -> giữ nguyên giá trị đang lưu
+        if raw is None or str(raw).strip() == "":
+            continue  # không gửi -> giữ nguyên giá trị đang lưu
         value, error = _parse_number(name, str(raw).strip())
         if error:
             return None, error
         values[name] = value
 
-    if tier == "expert":
-        mode = form.get("low_confidence_reply_mode", "")
-        if mode not in ctx_settings.REPLY_MODES:
-            return None, "Cách phản hồi khi thiếu thông tin không hợp lệ."
-        values["low_confidence_reply_mode"] = mode
-        for name in ("low_confidence_decline_message", "low_confidence_clarify_message"):
-            text = clean_instructions(form.get(name, ""))
-            if len(text) > MAX_LOW_CONFIDENCE_MESSAGE_CHARS:
-                return None, f"Câu phản hồi tối đa {MAX_LOW_CONFIDENCE_MESSAGE_CHARS} ký tự."
-            values[name] = text or None
-        if values.get("context_pressure_hard_limit", 1) <= values.get("context_pressure_warning", 0):
-            return None, "Ngưỡng nén mạnh phải lớn hơn ngưỡng cảnh báo."
+    mode = form.get("low_confidence_reply_mode", "")
+    if mode not in ctx_settings.REPLY_MODES:
+        return None, "Cách phản hồi khi thiếu thông tin không hợp lệ."
+    values["low_confidence_reply_mode"] = mode
+    for name in ("low_confidence_decline_message", "low_confidence_clarify_message"):
+        text = clean_instructions(form.get(name, ""))
+        if len(text) > MAX_LOW_CONFIDENCE_MESSAGE_CHARS:
+            return None, f"Câu phản hồi tối đa {MAX_LOW_CONFIDENCE_MESSAGE_CHARS} ký tự."
+        values[name] = text or None
+    if values.get("context_pressure_hard_limit", 1) <= values.get("context_pressure_warning", 0):
+        return None, "Ngưỡng nén mạnh phải lớn hơn ngưỡng cảnh báo."
     return values, None
 
 
 def engine_form_context(settings: BotSettings) -> dict:
     """Dữ liệu cho template Bước 1: giá trị đang lưu (không phải giá trị hiệu lực — người dùng thấy đúng cái đã lưu) và
-    danh sách trường theo tier."""
+    danh sách trường (luôn đầy đủ, không còn phân theo mức cấu hình)."""
     fields = []
     for spec in ENGINE_FIELDS:
         kind, low, high = ctx_settings.RANGES[spec["name"]]
@@ -285,10 +238,7 @@ def engine_form_context(settings: BotSettings) -> dict:
             "range_text": f"{low:g}–{high:g}", "default_text": f"{default:g}",  # cho tooltip (?)
         })
     return {
-        "tier": ctx_settings.normalize_tier(settings.config_tier),
-        "tiers": ENGINE_TIER_INFO,
         "fields": fields,
-        "expert_toggles": ENGINE_EXPERT_TOGGLES,
         "reply_modes": ctx_settings.REPLY_MODES,
         "message_max": MAX_LOW_CONFIDENCE_MESSAGE_CHARS,
     }

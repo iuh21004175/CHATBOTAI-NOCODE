@@ -90,10 +90,15 @@ class BotSettings(db.Model):
     min_similarity = db.Column(db.Float, nullable=False, default=0.25, server_default="0.25")
     # ---- Context & Response Decision Engine (xem core/context_engine). Mặc định khai báo ở đúng 1 nơi:
     # core/context_engine/settings.py:DEFAULTS — server_default dưới đây phải khớp (kiểm tra bằng test). ----
+    # KHÔNG CÒN ĐƯỢC ĐỌC: engine không còn khái niệm "mức cấu hình" (mọi thông số luôn chỉnh được). Giữ cột để
+    # migration/rollback không mất dữ liệu.
     config_tier = db.Column(
         db.Enum("basic", "advanced", "expert", name="bot_config_tier"), nullable=False, default="basic", server_default="basic"
-    )  # quyết định trường nào được sửa ở Bước 1; trường không được sửa dùng mặc định (SettingsTier)
-    rag_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")  # công tắc Knowledge Base (tier basic)
+    )
+    # rag_enabled, summary_enabled, structured_memory_enabled, intent_tracking_enabled, slot_filling_enabled,
+    # clarification_enabled: KHÔNG CÒN ĐƯỢC ĐỌC — engine dùng giá trị cố định (core/context_engine/settings.py:
+    # FIXED_TOGGLES), không phụ thuộc các cột này nữa. Giữ cột để migration/rollback không mất dữ liệu.
+    rag_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
     recent_message_limit = db.Column(db.Integer, nullable=False, default=10, server_default="10")
     recent_token_limit = db.Column(db.Integer, nullable=False, default=2000, server_default="2000")
     summary_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
@@ -114,6 +119,8 @@ class BotSettings(db.Model):
     rag_max_context_tokens = db.Column(db.Integer, nullable=False, default=3000, server_default="3000")
     max_candidate_count = db.Column(db.Integer, nullable=False, default=5, server_default="5")
     clarification_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
+    # KHÔNG CÒN ĐƯỢC ĐỌC: không còn trần số lượt hỏi làm rõ liên tiếp (AI Agent tự quyết định khi nào dừng hỏi).
+    # Giữ cột để migration/rollback không mất dữ liệu.
     max_clarification_turns = db.Column(db.Integer, nullable=False, default=2, server_default="2")
     context_pressure_warning = db.Column(db.Float, nullable=False, default=0.80, server_default="0.80")
     context_pressure_hard_limit = db.Column(db.Float, nullable=False, default=0.90, server_default="0.90")
