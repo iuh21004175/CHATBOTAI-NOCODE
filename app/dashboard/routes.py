@@ -177,19 +177,18 @@ def bot_setup(bot_id):
         elif len(service.clean_instructions(request.form.get("instructions"))) > MAX_INSTRUCTIONS_CHARS:
             flash(f"Chỉ dẫn tối đa {MAX_INSTRUCTIONS_CHARS} ký tự.", "error")
         else:
-            service.update_bot_setup(bot, settings, request.form)
-            flash("Đã lưu thay đổi.", "success")
-            return redirect(url_for("dashboard.bot_setup", bot_id=bot.id))
-
-    from core import rag_engine
+            error = service.update_bot_setup(bot, settings, request.form)
+            if error:
+                flash(error, "error")
+            else:
+                flash("Đã lưu thay đổi.", "success")
+                return redirect(url_for("dashboard.bot_setup", bot_id=bot.id))
 
     return render_template(
         "bots/setup.html",
         bot=bot,
         settings=settings,
-        min_similarity=rag_engine.normalize_min_similarity(settings.min_similarity),
-        min_similarity_min=rag_engine.MIN_SIMILARITY_MIN,
-        min_similarity_max=rag_engine.MIN_SIMILARITY_MAX,
+        engine=service.engine_form_context(settings),
         template_list=assistant_templates.TEMPLATES,
         template_data=assistant_templates.client_data(),
         instructions_max=MAX_INSTRUCTIONS_CHARS,
@@ -217,11 +216,11 @@ def bot_preview_chat(bot_id):
         return jsonify(error=f"Câu hỏi tối đa {service.MAX_MESSAGE_CHARS} ký tự."), 400
 
     try:
-        reply = service.generate_reply(bot, message, service.clean_history(payload.get("history")))
+        result = service.preview_reply(bot, message, payload.get("history"))
     except Exception:
         current_app.logger.exception("preview-chat lỗi (bot_id=%s)", bot.id)
         return jsonify(error="Không lấy được câu trả lời. Kiểm tra DEEPSEEK_API_KEY và các dịch vụ ChromaDB."), 502
-    return jsonify(reply=reply)
+    return jsonify(result)
 
 
 @bp.route("/bots/<int:bot_id>/setup/optimize-instructions", methods=["POST"])
@@ -243,6 +242,22 @@ def bot_optimize_instructions(bot_id):
     except Exception:
         current_app.logger.exception("optimize-instructions lỗi (bot_id=%s)", bot.id)
         return jsonify(error="Không tối ưu được chỉ dẫn lúc này. Kiểm tra DEEPSEEK_API_KEY rồi thử lại."), 502
+
+
+@bp.route("/bots/<int:bot_id>/setup/cost-estimate", methods=["POST"])
+@login_required
+@limiter.limit("60 per minute")
+def bot_cost_estimate(bot_id):
+    """Chi phí ước tính (thấp nhất-cao nhất) của 1 câu hỏi theo cấu hình đang chọn ở Bước 1 — chưa lưu, không ghi gì."""
+    bot = _require_bot(bot_id)
+    if not verify_csrf_token(request.headers.get("X-CSRF-Token", "")):
+        return jsonify(error="Phiên làm việc đã hết hạn, vui lòng tải lại trang."), 400
+    if len(service.clean_instructions(request.form.get("instructions"))) > MAX_INSTRUCTIONS_CHARS:
+        return jsonify(error=f"Chỉ dẫn tối đa {MAX_INSTRUCTIONS_CHARS} ký tự."), 422
+    result, error = service.estimate_setup_cost(bot, service.get_or_create_settings(bot), request.form)
+    if error:
+        return jsonify(error=error), 422
+    return jsonify(result)
 
 
 # ---- Bước 3: Xuất bản ----

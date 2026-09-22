@@ -2,6 +2,7 @@
 {% block title %}Thiết lập — {{ bot.name }}{% endblock %}
 {% block workspace_extra_css %}
 <style>
+#engine-card [hidden]{display:none !important;} /* .toggle-row đặt display:flex nên thuộc tính hidden mặc định không đủ */
 /* ---- Chọn mẫu trợ lý ---- */
 .tpl-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;}
 .tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;}
@@ -51,6 +52,43 @@
 .ed-msg.ok{color:var(--green-text);}
 .ed-msg button{border:none;background:none;color:var(--accent-dark);font-weight:700;font-family:inherit;cursor:pointer;text-decoration:underline;padding:0 0 0 6px;}
 [hidden]{display:none !important;}
+/* ---- Icon ? giải thích (tooltip hiện khi rê chuột hoặc focus bằng bàn phím) ---- */
+.lbl-row{display:flex;align-items:center;margin-bottom:7px;}
+.lbl-row .lbl{margin:0;display:inline;}
+.tip{position:relative;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:16px;height:16px;margin-left:6px;border-radius:50%;background:#E2E8F0;color:var(--text-soft);font-size:11px;font-weight:700;line-height:1;cursor:help;vertical-align:middle;user-select:none;}
+.tip:hover,.tip:focus{background:var(--text);color:#fff;outline:none;}
+.tip:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.tip-body{display:none;position:absolute;left:-8px;top:calc(100% + 8px);z-index:30;width:340px;max-width:calc(100vw - 64px);padding:10px 12px;border-radius:10px;background:#0F172A;color:#fff;font-size:12px;font-weight:400;line-height:1.55;text-align:left;box-shadow:0 8px 24px rgba(15,23,42,.25);cursor:default;}
+.tip:hover .tip-body,.tip:focus .tip-body{display:block;}
+.tip-line{display:block;margin-top:6px;}
+.tip-line b{font-weight:700;}
+.tip-meta{color:#94A3B8;font-size:11.5px;}
+.slider-row{display:flex;align-items:center;gap:12px;}
+.slider-row input[type=range]{flex:1;min-width:0;accent-color:var(--black);}
+.slider-end{font-size:11px;color:var(--text-faint);white-space:nowrap;}
+.slider-val{min-width:40px;text-align:right;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;}
+.eng-sep{margin:20px 0 16px;border-top:1px solid var(--border);}
+/* ---- Chi phí ước tính mỗi câu hỏi (dính đáy vùng cuộn khi card đang hiển thị) ---- */
+.cost-box{position:sticky;bottom:0;z-index:20;margin:20px -20px -20px;padding:12px 20px 14px;border-top:1px solid var(--border);border-radius:0 0 14px 14px;background:#F8FAFC;box-shadow:0 -6px 16px rgba(15,23,42,.06);}
+.cost-head{display:flex;align-items:center;font-size:13px;font-weight:700;margin-bottom:8px;}
+.cost-box .tip-body{top:auto;bottom:calc(100% + 8px);}
+.cost-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.cost-cell-label{font-size:11.5px;color:var(--text-faint);}
+.cost-cell-val{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;}
+.cost-cell-val.dim{font-weight:600;}
+.cost-sub{margin-top:6px;font-size:12px;color:var(--text-faint);}
+.cost-err{font-size:13px;font-weight:600;color:var(--error-text);}
+.cost-box.loading .cost-grid,.cost-box.loading .cost-sub{opacity:.55;}
+.cost-details{margin-top:8px;font-size:12.5px;}
+.cost-details summary{cursor:pointer;font-weight:700;color:var(--accent-dark);}
+.cost-detail-body{max-height:40vh;overflow:auto;margin-top:8px;}
+.cost-table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums;}
+.cost-table th,.cost-table td{padding:4px 0 4px 10px;text-align:right;border-bottom:1px solid #EEF2F7;}
+.cost-table th:first-child,.cost-table td:first-child{padding-left:0;text-align:left;}
+.cost-table thead th{font-weight:700;color:var(--text-soft);}
+.cost-table tr.total td,.cost-table tr.total th{font-weight:700;}
+.cost-notes{margin:10px 0 0;padding-left:18px;color:var(--text-soft);line-height:1.55;}
+.cost-notes li{margin-bottom:4px;}
 @media (max-width:640px){.ins-bar{flex-wrap:wrap;}}
 </style>
 {% endblock %}
@@ -61,6 +99,10 @@
 </button>
 {% endblock %}
 {% block main %}
+{# tip: icon ? kèm tooltip, nội dung là phần thân của {% call %}; lbl: nhãn + icon ? (icon nằm ngoài <label> để bấm vào không kích hoạt ô nhập).
+   Lưu ý: gọi caller() trong lbl trước khi mở {% call tip %} — trong thân {% call %} biến `caller` không còn trỏ tới caller của lbl. #}
+{% macro tip(tip_id, label) %}<span class="tip" tabindex="0" role="note" aria-label="Giải thích: {{ label }}" aria-describedby="{{ tip_id }}">?<span class="tip-body" role="tooltip" id="{{ tip_id }}">{{ caller() }}</span></span>{% endmacro %}
+{% macro lbl(for_id, text, style="") %}{% set body = caller() %}<div class="lbl-row"{% if style %} style="{{ style }}"{% endif %}><label class="lbl" for="{{ for_id }}">{{ text }}</label>{% call tip('tip-' ~ for_id, text) %}{{ body }}{% endcall %}</div>{% endmacro %}
 <form id="setup-form" method="post" action="{{ url_for('dashboard.bot_setup', bot_id=bot.id) }}" class="ws-layout">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -151,40 +193,181 @@
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Cấu hình mô hình AI</div>
-      <div style="margin-bottom:18px;">
-        <div>
-          <label class="lbl" for="language">Ngôn ngữ</label>
-          <select class="field" id="language" name="language">
-            <option value="vi" {{ "selected" if settings.language == "vi" else "" }}>Tiếng Việt</option>
-            <option value="en" {{ "selected" if settings.language == "en" else "" }}>English</option>
-          </select>
-          <div class="hint">Trợ lý sẽ luôn trả lời bằng ngôn ngữ này, kể cả khi khách hỏi hoặc tài liệu viết bằng ngôn ngữ khác.</div>
-        </div>
-      </div>
+    <div class="card" id="engine-card">
+      <div class="card-title">Trả lời thông minh</div>
+
+      {% call lbl('language', 'Ngôn ngữ') %}
+        Ngôn ngữ trợ lý dùng để trả lời. Trợ lý luôn trả lời bằng ngôn ngữ này, kể cả khi khách hỏi hoặc tài liệu viết bằng ngôn ngữ khác.
+      {% endcall %}
+      <select class="field" id="language" name="language">
+        <option value="vi" {{ "selected" if settings.language == "vi" else "" }}>Tiếng Việt</option>
+        <option value="en" {{ "selected" if settings.language == "en" else "" }}>English</option>
+      </select>
+
       {# temperature = 0 là giá trị hợp lệ ("Chính xác") — không dùng `or` vì 0.0 bị coi là rỗng #}
       {% set temp = settings.temperature if settings.temperature is not none else 0.7 %}
-      <label class="lbl" for="max_tokens">Token đầu ra tối đa: <span id="max-tokens-value">{{ settings.max_tokens or 500 }}</span></label>
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
-        <span style="font-size:11px;color:var(--text-faint);">10</span>
-        <input type="range" id="max_tokens" name="max_tokens" min="10" max="3000" step="10" value="{{ settings.max_tokens or 500 }}" style="flex-grow:1;accent-color:var(--black);">
-        <span style="font-size:11px;color:var(--text-faint);">3000</span>
+      {% call lbl('max_tokens', 'Token đầu ra tối đa', 'margin-top:18px;') %}
+        Giới hạn độ dài một câu trả lời của AI (khoảng 1 token ≈ 3–4 ký tự tiếng Việt). Đây là mức trần: AI không bị ép viết cho đủ.
+        <span class="tip-line"><b>Thấp (dưới ~200):</b> câu trả lời rất ngắn, có thể bị cắt cụt giữa chừng.</span>
+        <span class="tip-line"><b>Vừa (~300–800):</b> đủ cho hầu hết câu hỏi chăm sóc khách hàng.</span>
+        <span class="tip-line"><b>Cao (trên ~1000):</b> trả lời chi tiết, dài nhưng tốn chi phí và chậm hơn.</span>
+      {% endcall %}
+      <div class="slider-row">
+        <span class="slider-end">10</span>
+        <input type="range" id="max_tokens" name="max_tokens" min="10" max="3000" step="10" value="{{ settings.max_tokens or 500 }}">
+        <span class="slider-end">3000</span>
+        <output class="slider-val" id="max_tokens-value" for="max_tokens">{{ settings.max_tokens or 500 }}</output>
       </div>
-      <label class="lbl" for="temperature">Độ sáng tạo (temperature): <span id="temp-value">{{ "%.1f"|format(temp) }}</span></label>
-      <div style="display:flex;align-items:center;gap:12px;">
-        <span style="font-size:11px;color:var(--text-faint);">0 (Chính xác)</span>
-        <input type="range" id="temperature" name="temperature" min="0" max="1" step="0.1" value="{{ temp }}" style="flex-grow:1;accent-color:var(--black);">
-        <span style="font-size:11px;color:var(--text-faint);">1 (Sáng tạo)</span>
+
+      {% call lbl('temperature', 'Độ sáng tạo (temperature)', 'margin-top:18px;') %}
+        Mức ngẫu nhiên khi AI chọn từ để viết câu trả lời.
+        <span class="tip-line"><b>0 – 0,3 (chính xác):</b> ổn định, bám sát tài liệu và chỉ dẫn; hợp tư vấn giá, chính sách.</span>
+        <span class="tip-line"><b>0,4 – 0,7 (cân bằng):</b> tự nhiên, linh hoạt mà vẫn đáng tin.</span>
+        <span class="tip-line"><b>0,8 – 1 (sáng tạo):</b> đa dạng, giàu cảm xúc nhưng dễ diễn đạt lệch hoặc thêm ý ngoài tài liệu.</span>
+      {% endcall %}
+      <div class="slider-row">
+        <span class="slider-end">0 (Chính xác)</span>
+        <input type="range" id="temperature" name="temperature" min="0" max="1" step="0.1" value="{{ temp }}">
+        <span class="slider-end">1 (Sáng tạo)</span>
+        <output class="slider-val" id="temperature-value" for="temperature">{{ "%.1f"|format(temp) }}</output>
       </div>
-      <div class="hint">Token đầu ra tối đa giới hạn độ dài câu trả lời của AI (khoảng 1 token ≈ 3–4 ký tự tiếng Việt).</div>
-      <label class="lbl" for="min_similarity" style="margin-top:18px;">Độ liên quan tối thiểu khi tra cứu tài liệu: <span id="min-similarity-value">{{ "%.2f"|format(min_similarity) }}</span></label>
-      <div style="display:flex;align-items:center;gap:12px;">
-        <span style="font-size:11px;color:var(--text-faint);">{{ "%.2f"|format(min_similarity_min) }} (Thoáng)</span>
-        <input type="range" id="min_similarity" name="min_similarity" min="{{ min_similarity_min }}" max="{{ min_similarity_max }}" step="0.05" value="{{ min_similarity }}" style="flex-grow:1;accent-color:var(--black);">
-        <span style="font-size:11px;color:var(--text-faint);">{{ "%.2f"|format(min_similarity_max) }} (Khắt khe)</span>
+
+      <div class="eng-sep"></div>
+
+      {% call lbl('config_tier', 'Mức cấu hình') %}
+        Chọn mức độ chi tiết của các thông số điều khiển cách AI ghi nhớ, tra cứu tài liệu và hỏi lại.
+        {% for t in engine.tiers %}<span class="tip-line"><b>{{ t.name }}:</b> {{ t.desc }}</span>{% endfor %}
+        <span class="tip-line">Thông số không nằm trong mức đang chọn luôn dùng giá trị mặc định của hệ thống — hạ mức không để lại giá trị ẩn.</span>
+      {% endcall %}
+      <select class="field" id="config_tier" name="config_tier">
+        {% for t in engine.tiers %}
+        <option value="{{ t.value }}" data-desc="{{ t.desc }}" {{ "selected" if engine.tier == t.value else "" }}>{{ t.label }}</option>
+        {% endfor %}
+      </select>
+      <div class="hint" id="tier-desc" aria-live="polite">{% for t in engine.tiers %}{% if t.value == engine.tier %}{{ t.desc }}{% endif %}{% endfor %}</div>
+
+      <div class="toggle-row" data-tiers="basic advanced">
+        <div>
+          <div class="toggle-row-title">Bộ nhớ hội thoại
+            {% call tip('tip-memory_enabled', 'Bộ nhớ hội thoại') %}
+              Ghi nhớ điều khách đã nói và tóm tắt khi hội thoại dài, để AI không quên phần đầu cuộc trò chuyện. Tắt: AI chỉ dựa vào các tin gần nhất.
+            {% endcall %}
+          </div>
+          <div class="toggle-row-desc">Ghi nhớ điều khách đã nói và tóm tắt khi hội thoại dài</div>
+        </div>
+        <input type="checkbox" id="memory_enabled" name="memory_enabled" {{ "checked" if settings.structured_memory_enabled and settings.summary_enabled else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings.structured_memory_enabled and settings.summary_enabled else '' }}" data-toggle-target="memory_enabled" aria-label="Bộ nhớ hội thoại"><div class="dot"></div></button>
       </div>
-      <div class="hint">Chỉ những đoạn tài liệu giống câu hỏi từ mức này trở lên mới được đưa cho AI; nếu không có đoạn nào đạt, trợ lý nói rõ là chưa có thông tin thay vì đoán. Thấp: ít bỏ sót nhưng dễ lẫn đoạn không liên quan. Cao: chỉ dùng đoạn rất sát nhưng có thể bỏ sót khi khách hỏi ngắn hoặc viết không dấu. Gợi ý: 0,25.</div>
+      <div class="toggle-row" data-tiers="basic advanced expert">
+        <div>
+          <div class="toggle-row-title">Cơ sở tri thức (RAG)
+            {% call tip('tip-rag_enabled', 'Cơ sở tri thức (RAG)') %}
+              AI tra cứu các tài liệu bạn đã tải ở Bước 2 rồi dựa vào đó để trả lời (giá, chính sách, thông tin sản phẩm...). Tắt: AI chỉ trả lời bằng kiến thức chung và chỉ dẫn, không dùng tài liệu.
+            {% endcall %}
+          </div>
+          <div class="toggle-row-desc">Tra cứu tài liệu ở Bước 2 để trả lời</div>
+        </div>
+        <input type="checkbox" id="rag_enabled" name="rag_enabled" {{ "checked" if settings.rag_enabled else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings.rag_enabled else '' }}" data-toggle-target="rag_enabled" aria-label="Cơ sở tri thức (RAG)"><div class="dot"></div></button>
+      </div>
+      <div class="toggle-row" data-tiers="basic advanced expert">
+        <div>
+          <div class="toggle-row-title">AI tự hỏi làm rõ
+            {% call tip('tip-clarification_enabled', 'AI tự hỏi làm rõ') %}
+              Khi câu hỏi mơ hồ hoặc chưa đủ thông tin, AI hỏi lại khách thay vì đoán. Tắt: AI luôn cố trả lời ngay, dễ đoán sai ý khách.
+            {% endcall %}
+          </div>
+          <div class="toggle-row-desc">Hỏi lại khách khi chưa đủ thông tin thay vì đoán</div>
+        </div>
+        <input type="checkbox" id="clarification_enabled" name="clarification_enabled" {{ "checked" if settings.clarification_enabled else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings.clarification_enabled else '' }}" data-toggle-target="clarification_enabled" aria-label="AI tự hỏi làm rõ"><div class="dot"></div></button>
+      </div>
+
+      {% for f in engine.fields %}
+      <div data-tiers="{{ 'advanced expert' if f.tier == 'advanced' else 'expert' }}" style="margin-top:14px;">
+        {# Nhãn không in giá trị: giá trị đang chọn nằm ở ô nhập, hoặc ở ô hiển thị cạnh thanh trượt #}
+        {% call lbl(f.name, f.label) %}
+          {{ f.help }}
+          {% if f.low %}<span class="tip-line"><b>Chỉnh nhỏ:</b> {{ f.low }}</span>{% endif %}
+          {% if f.high %}<span class="tip-line"><b>Chỉnh lớn:</b> {{ f.high }}</span>{% endif %}
+          {% if f.note %}<span class="tip-line">{{ f.note }}</span>{% endif %}
+          <span class="tip-line tip-meta">Hợp lệ: {{ f.range_text }} · Mặc định hệ thống: {{ f.default_text }}</span>
+        {% endcall %}
+        {% if f.slider %}
+        <div class="slider-row">
+          <span class="slider-end">{{ f.min }} (Khắt khe)</span>
+          <input type="range" id="{{ f.name }}" name="{{ f.name }}" min="{{ f.min }}" max="{{ f.max }}" step="{{ f.step }}" value="{{ f.value }}">
+          <span class="slider-end">{{ f.max }} (Thoáng)</span>
+          <output class="slider-val" id="{{ f.name }}-value" for="{{ f.name }}">{{ "%.2f"|format(f.value) }}</output>
+        </div>
+        {% else %}
+        <input class="field" type="number" id="{{ f.name }}" name="{{ f.name }}" min="{{ f.min }}" max="{{ f.max }}" step="{{ f.step }}" value="{{ f.value }}">
+        {% endif %}
+      </div>
+      {% endfor %}
+
+      {% for name, title, desc, help in engine.expert_toggles %}
+      <div class="toggle-row" data-tiers="expert">
+        <div>
+          <div class="toggle-row-title">{{ title }}
+            {% call tip('tip-' ~ name, title) %}{{ help }}{% endcall %}
+          </div>
+          <div class="toggle-row-desc">{{ desc }}</div>
+        </div>
+        <input type="checkbox" id="{{ name }}" name="{{ name }}" {{ "checked" if settings[name] else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings[name] else '' }}" data-toggle-target="{{ name }}" aria-label="{{ title }}"><div class="dot"></div></button>
+      </div>
+      {% endfor %}
+
+      <div data-tiers="expert" style="margin-top:14px;">
+        {% call lbl('low_confidence_reply_mode', 'Khi không có thông tin phù hợp') %}
+          Cách AI phản hồi khi không đoạn tài liệu nào đủ liên quan tới câu hỏi.
+          <span class="tip-line"><b>Hỏi lại khách:</b> AI dùng câu hỏi lại bên dưới để khách nói rõ hơn; hợp khi câu hỏi có thể chỉ chưa đủ ý.</span>
+          <span class="tip-line"><b>Từ chối lịch sự:</b> AI dùng câu từ chối bên dưới và không tự trả lời; hợp khi cần tránh trả lời ngoài phạm vi tài liệu.</span>
+        {% endcall %}
+        <select class="field" id="low_confidence_reply_mode" name="low_confidence_reply_mode">
+          <option value="ask_clarify" {{ "selected" if settings.low_confidence_reply_mode == "ask_clarify" else "" }}>Hỏi lại khách</option>
+          <option value="decline" {{ "selected" if settings.low_confidence_reply_mode == "decline" else "" }}>Từ chối lịch sự</option>
+        </select>
+        {% call lbl('low_confidence_clarify_message', 'Câu hỏi lại (để trống = câu mặc định)', 'margin-top:14px;') %}
+          Câu bạn viết sẵn, được dùng nguyên văn khi tài liệu không có đoạn nào đủ liên quan và chế độ là "Hỏi lại khách" — AI không tự trả lời trong trường hợp đó. Để trống: dùng câu mặc định của hệ thống.
+        {% endcall %}
+        <textarea class="field" id="low_confidence_clarify_message" name="low_confidence_clarify_message" rows="2" maxlength="{{ engine.message_max }}" style="resize:vertical;">{{ settings.low_confidence_clarify_message or "" }}</textarea>
+        {% call lbl('low_confidence_decline_message', 'Câu từ chối (để trống = câu mặc định)', 'margin-top:14px;') %}
+          Câu bạn viết sẵn, được dùng nguyên văn khi tài liệu không có đoạn nào đủ liên quan và chế độ là "Từ chối lịch sự" hoặc khi đã hết số lượt hỏi làm rõ — AI không tự trả lời trong trường hợp đó. Để trống: dùng câu mặc định của hệ thống.
+        {% endcall %}
+        <textarea class="field" id="low_confidence_decline_message" name="low_confidence_decline_message" rows="2" maxlength="{{ engine.message_max }}" style="resize:vertical;">{{ settings.low_confidence_decline_message or "" }}</textarea>
+      </div>
+
+      <div class="cost-box" id="cost-box" data-url="{{ url_for('dashboard.bot_cost_estimate', bot_id=bot.id) }}" aria-live="polite">
+        <div class="cost-head">
+          <span>Chi phí ước tính mỗi câu hỏi</span>
+          {% call tip('tip-cost', 'Chi phí ước tính mỗi câu hỏi') %}
+            Tính theo cấu hình đang chọn (chưa cần lưu) với bảng giá DeepSeek Flash, quy đổi 1 USD ≈ 26.200 VND; đổi cấu hình thì con số đổi theo.
+            <span class="tip-line"><b>Thấp nhất:</b> đầu hội thoại, không tra cứu được tài liệu, câu hỏi và câu trả lời ngắn, phần chỉ dẫn cố định đã nằm trong bộ nhớ đệm (cache).</span>
+            <span class="tip-line"><b>Cao nhất:</b> mọi phần ngữ cảnh (tóm tắt, bộ nhớ, tin gần đây, tài liệu) đầy tới trần cấu hình, câu trả lời dài tới mức tối đa, không trúng cache.</span>
+            <span class="tip-line">Chi phí thật của mỗi câu hỏi nằm giữa hai mức. Đây là ước lượng: số token thật do DeepSeek tính.</span>
+          {% endcall %}
+        </div>
+        <div id="cost-body">
+          <div class="cost-grid">
+            <div><div class="cost-cell-label">Ngoài giờ cao điểm</div><div class="cost-cell-val" id="cost-off">Đang tính…</div></div>
+            <div><div class="cost-cell-label">Giờ cao điểm</div><div class="cost-cell-val dim" id="cost-peak">…</div></div>
+          </div>
+          <div class="cost-sub" id="cost-sub"></div>
+          <details class="cost-details">
+            <summary>Chi tiết cách tính</summary>
+            <div class="cost-detail-body">
+              <table class="cost-table">
+                <thead><tr><th>Token mỗi câu hỏi</th><th>Thấp nhất</th><th>Cao nhất</th></tr></thead>
+                <tbody id="cost-rows"></tbody>
+              </table>
+              <ul class="cost-notes" id="cost-notes"></ul>
+            </div>
+          </details>
+        </div>
+        <div class="cost-err" id="cost-err" role="alert" hidden></div>
+      </div>
     </div>
 
     <div class="card">
@@ -232,18 +415,121 @@
       var input = byId(btn.dataset.toggleTarget);
       input.checked = !input.checked;
       btn.classList.toggle('on', input.checked);
+      input.dispatchEvent(new Event('change', { bubbles: true }));  // để ô chi phí ước tính cập nhật
     });
   });
   function bindSlider(inputId, valueId, digits) {
     var input = byId(inputId), out = byId(valueId);
     if (input && out) input.addEventListener('input', function () { out.textContent = parseFloat(input.value).toFixed(digits); });
   }
-  bindSlider('temperature', 'temp-value', 1);
-  bindSlider('min_similarity', 'min-similarity-value', 2);
-  var maxTokensInput = byId('max_tokens'), maxTokensValue = byId('max-tokens-value');
-  if (maxTokensInput && maxTokensValue) {
-    maxTokensInput.addEventListener('input', function () { maxTokensValue.textContent = maxTokensInput.value; });
+  bindSlider('max_tokens', 'max_tokens-value', 0);
+  bindSlider('temperature', 'temperature-value', 1);
+  bindSlider('rag_distance_threshold', 'rag_distance_threshold-value', 2);
+
+  // Mức cấu hình: chỉ hiện các thông số thuộc mức đang chọn; ô bị ẩn bị vô hiệu hóa để không gửi lên (server cũng bỏ qua)
+  var tierSelect = byId('config_tier');
+  var tierDesc = byId('tier-desc');
+  function applyTier() {
+    var tier = tierSelect.value;
+    tierDesc.textContent = tierSelect.options[tierSelect.selectedIndex].dataset.desc || '';
+    document.querySelectorAll('#engine-card [data-tiers]').forEach(function (section) {
+      var visible = section.dataset.tiers.split(' ').indexOf(tier) !== -1;
+      section.hidden = !visible;
+      section.querySelectorAll('input,select,textarea').forEach(function (el) { el.disabled = !visible; });
+    });
   }
+  tierSelect.addEventListener('change', applyTier);
+  applyTier();
+
+  // ---------------- Chi phí ước tính mỗi câu hỏi ----------------
+  // Server tính (cùng phép kiểm tra + quy tắc tier như lúc lưu) từ cấu hình đang chọn trên form; chưa lưu cũng cập nhật.
+  var setupForm = byId('setup-form'), costBox = byId('cost-box');
+  var costSeq = 0, costTimer = null;
+  function fmtVnd(n) {
+    var d = n < 10 ? 2 : n < 100 ? 1 : 0;
+    return n.toLocaleString('vi-VN', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  function fmtInt(n) { return Math.round(n).toLocaleString('vi-VN'); }
+  function range(lo, hi, fmt) { return fmt(lo) + ' – ' + fmt(hi); }
+  function addRow(tbody, cells, cls) {
+    var tr = document.createElement('tr');
+    if (cls) tr.className = cls;
+    cells.forEach(function (text, i) {
+      var cell = document.createElement(i === 0 && cls === 'total' ? 'th' : 'td');
+      cell.textContent = text;
+      tr.appendChild(cell);
+    });
+    tbody.appendChild(tr);
+  }
+  function showCostError(text) {
+    costBox.classList.remove('loading');
+    byId('cost-body').hidden = true;
+    var err = byId('cost-err');
+    err.textContent = text;
+    err.hidden = false;
+  }
+  function renderCost(d) {
+    var lo = d.question.min, hi = d.question.max;
+    byId('cost-err').hidden = true;
+    byId('cost-body').hidden = false;
+    costBox.classList.remove('loading');
+    byId('cost-off').textContent = range(lo.vnd.off_peak, hi.vnd.off_peak, fmtVnd) + ' VND';
+    byId('cost-peak').textContent = range(lo.vnd.peak, hi.vnd.peak, fmtVnd) + ' VND';
+    byId('cost-sub').textContent = '1.000 câu hỏi ≈ ' + range(lo.vnd.off_peak * 1000, hi.vnd.off_peak * 1000, fmtInt) + ' VND (ngoài giờ cao điểm).';
+
+    var rows = byId('cost-rows');
+    rows.textContent = '';
+    d.components.forEach(function (c) { addRow(rows, [c.label, fmtInt(c.min), fmtInt(c.max)]); });
+    addRow(rows, ['Tổng đầu vào', fmtInt(lo.input), fmtInt(hi.input)], 'total');
+    addRow(rows, ['— trong đó trúng cache', fmtInt(lo.cache_hit), fmtInt(hi.cache_hit)]);
+    addRow(rows, ['Đầu ra (câu trả lời + dữ liệu có cấu trúc)', fmtInt(lo.output), fmtInt(hi.output)], 'total');
+
+    var notes = [
+      'Thấp nhất: đầu hội thoại (chưa có tóm tắt, bộ nhớ, tin cũ), không tra cứu được tài liệu, câu hỏi và câu trả lời ngắn, phần chỉ dẫn cố định (' + fmtInt(d.components[0].min) + ' token) trúng cache.',
+      'Cao nhất: mọi phần ngữ cảnh đầy tới trần cấu hình, câu trả lời dài tới “Token đầu ra tối đa”, không trúng cache.',
+      'Hiếm khi AI phải gọi lại (kết quả sai định dạng hoặc tra cứu lại lịch sử hội thoại): cộng thêm tối đa ≈ ' + fmtVnd(d.extra_call_max.off_peak) + ' VND (ngoài cao điểm) / ' + fmtVnd(d.extra_call_max.peak) + ' VND (cao điểm).'
+    ];
+    if (d.summary_job) {
+      notes.push('Tóm tắt nền chạy khi các tin chưa tóm tắt vượt ' + fmtInt(d.summary_job.trigger_tokens) + ' token, không tính vào từng câu hỏi: ≈ ' +
+        range(d.summary_job.min.vnd.off_peak, d.summary_job.max.vnd.off_peak, fmtVnd) + ' VND mỗi lần (ngoài cao điểm).');
+    }
+    if (d.over_budget) {
+      notes.push('Chỉ dẫn, tóm tắt, bộ nhớ và tin gần đây ở mức tối đa đã vượt “Tổng ngân sách ngữ cảnh”: hệ thống sẽ nén bớt, số liệu cao nhất bị chặn ở mức ngân sách.');
+    }
+    notes.push('Giờ cao điểm: ' + d.peak_hours + '. Tỷ giá tham chiếu 1 USD ≈ ' + fmtInt(d.usd_to_vnd) + ' VND; số token là ước lượng.');
+    var list = byId('cost-notes');
+    list.textContent = '';
+    notes.forEach(function (text) {
+      var li = document.createElement('li');
+      li.textContent = text;
+      list.appendChild(li);
+    });
+  }
+  function refreshCost() {
+    var seq = ++costSeq;  // bỏ qua phản hồi cũ đến muộn hơn phản hồi mới
+    costBox.classList.add('loading');
+    fetch(costBox.dataset.url, {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': CSRF, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(new FormData(setupForm))
+    }).then(function (res) {
+      return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+    }).then(function (res) {
+      if (seq !== costSeq) return;
+      if (res.ok) renderCost(res.data); else showCostError(res.data.error || 'Không tính được chi phí.');
+    }).catch(function () {
+      if (seq === costSeq) showCostError('Không tính được chi phí lúc này.');
+    });
+  }
+  function scheduleCost() {
+    clearTimeout(costTimer);
+    costTimer = setTimeout(refreshCost, 350);
+  }
+  function affectsCost(el) { return el.id === 'instructions' || !!(el.closest && el.closest('#engine-card')); }
+  ['input', 'change'].forEach(function (type) {
+    setupForm.addEventListener(type, function (e) { if (affectsCost(e.target)) scheduleCost(); });
+  });
+  refreshCost();
 
   // ---------------- Trình soạn chỉ dẫn (markdown) ----------------
   var ta = byId('instructions');

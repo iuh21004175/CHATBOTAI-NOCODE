@@ -86,8 +86,47 @@ class BotSettings(db.Model):
     max_tokens = db.Column(db.Integer, nullable=False, default=500, server_default="500")  # token đầu ra tối đa
     chunk_size = db.Column(db.Integer, nullable=False, default=450, server_default="450")  # token/chunk (Bước 2)
     chunk_overlap = db.Column(db.Integer, nullable=False, default=60, server_default="60")
-    # Độ giống (cosine 0-1) tối thiểu để đoạn tài liệu được đưa cho AI (Bước 1); xem rag_engine.DEFAULT_MIN_SIMILARITY
+    # KHÔNG CÒN ĐƯỢC ĐỌC: engine dùng rag_distance_threshold (bên dưới). Giữ cột để migration/rollback không mất dữ liệu.
     min_similarity = db.Column(db.Float, nullable=False, default=0.25, server_default="0.25")
+    # ---- Context & Response Decision Engine (xem core/context_engine). Mặc định khai báo ở đúng 1 nơi:
+    # core/context_engine/settings.py:DEFAULTS — server_default dưới đây phải khớp (kiểm tra bằng test). ----
+    config_tier = db.Column(
+        db.Enum("basic", "advanced", "expert", name="bot_config_tier"), nullable=False, default="basic", server_default="basic"
+    )  # quyết định trường nào được sửa ở Bước 1; trường không được sửa dùng mặc định (SettingsTier)
+    rag_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")  # công tắc Knowledge Base (tier basic)
+    recent_message_limit = db.Column(db.Integer, nullable=False, default=10, server_default="10")
+    recent_token_limit = db.Column(db.Integer, nullable=False, default=2000, server_default="2000")
+    summary_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
+    summary_trigger_tokens = db.Column(db.Integer, nullable=False, default=4000, server_default="4000")
+    summary_max_tokens = db.Column(db.Integer, nullable=False, default=500, server_default="500")
+    structured_memory_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
+    memory_max_items = db.Column(db.Integer, nullable=False, default=30, server_default="30")
+    memory_min_confidence = db.Column(db.Float, nullable=False, default=0.70, server_default="0.70")
+    intent_tracking_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
+    intent_confidence_threshold = db.Column(db.Float, nullable=False, default=0.70, server_default="0.70")
+    slot_filling_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
+    slot_completion_threshold = db.Column(db.Float, nullable=False, default=0.80, server_default="0.80")
+    rag_top_k = db.Column(db.Integer, nullable=False, default=8, server_default="8")
+    rag_rerank_top_n = db.Column(db.Integer, nullable=False, default=5, server_default="5")
+    # NGƯỠNG KHOẢNG CÁCH (bình phương L2 của Chroma, vector đã chuẩn hóa: d = 2·(1−cos)): chunk có d LỚN HƠN ngưỡng bị loại.
+    # Thay thế min_similarity (cosine, cột cũ giữ lại nhưng không còn được engine đọc).
+    rag_distance_threshold = db.Column(db.Float, nullable=False, default=1.50, server_default="1.50")
+    rag_max_context_tokens = db.Column(db.Integer, nullable=False, default=3000, server_default="3000")
+    max_candidate_count = db.Column(db.Integer, nullable=False, default=5, server_default="5")
+    clarification_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
+    max_clarification_turns = db.Column(db.Integer, nullable=False, default=2, server_default="2")
+    context_pressure_warning = db.Column(db.Float, nullable=False, default=0.80, server_default="0.80")
+    context_pressure_hard_limit = db.Column(db.Float, nullable=False, default=0.90, server_default="0.90")
+    low_confidence_reply_mode = db.Column(
+        db.Enum("decline", "ask_clarify", name="low_confidence_reply_mode"),
+        nullable=False,
+        default="ask_clarify",
+        server_default="ask_clarify",
+    )
+    low_confidence_decline_message = db.Column(db.Text, nullable=True)  # trống -> dùng câu mặc định theo ngôn ngữ
+    low_confidence_clarify_message = db.Column(db.Text, nullable=True)
+    max_context_tokens = db.Column(db.Integer, nullable=False, default=8000, server_default="8000")
+
     forward_to_staff = db.Column(db.Boolean, default=True)
     collect_customer_info = db.Column(db.Boolean, default=True)
     away_message = db.Column(db.Text)
@@ -146,8 +185,86 @@ class Message(db.Model):
     sender = db.Column(db.Enum("customer", "bot", "staff", name="message_sender"), nullable=False)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Chỉ có ở tin của bot do Decision Engine tạo (NULL với tin khách/nhân viên và tin cũ)
+    decision_trace = db.Column(db.JSON, nullable=True)
+    # Usage của lệnh gọi DeepSeek CHÍNH của lượt (lệnh gọi phụ nằm trong decision_trace["extra_llm_calls"])
+    usage_prompt_tokens = db.Column(db.Integer, nullable=True)
+    usage_completion_tokens = db.Column(db.Integer, nullable=True)
+    usage_cache_hit_tokens = db.Column(db.Integer, nullable=True)
+    usage_cache_miss_tokens = db.Column(db.Integer, nullable=True)
 
     conversation = db.relationship("Conversation", back_populates="messages")
+
+
+class ConversationState(db.Model):
+    """Trạng thái hội thoại (1-1 với Conversation), tạo lười khi cần — xem core/context_engine/state.py."""
+
+    __tablename__ = "conversation_state"
+
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey("conversations.id"), nullable=False, unique=True)
+    bot_id = db.Column(db.Integer, db.ForeignKey("bots.id"), nullable=False, index=True)
+    current_intent = db.Column(db.String(100), nullable=True)
+    previous_intent = db.Column(db.String(100), nullable=True)
+    intent_confidence = db.Column(db.Float, nullable=True)
+    intent_changed = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+    slots = db.Column(db.JSON, nullable=True)  # {"product": "...", "budget": null, ...}
+    slot_completion = db.Column(db.Float, nullable=False, default=1.0, server_default="1")
+    summary = db.Column(db.Text, nullable=True)
+    summary_updated_at = db.Column(db.DateTime, nullable=True)
+    last_summarized_message_id = db.Column(db.Integer, nullable=True)
+    # Cờ việc nền: đặt khi các tin chưa tóm tắt vượt summary_trigger_tokens, worker (workers/context_jobs.py) xử lý rồi xóa
+    summary_pending = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+    clarification_turns_used = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class StructuredMemory(db.Model):
+    __tablename__ = "structured_memory"
+    __table_args__ = (
+        db.UniqueConstraint("conversation_id", "category", "mem_key", name="uq_structured_memory_item"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    bot_id = db.Column(db.Integer, db.ForeignKey("bots.id"), nullable=False, index=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey("conversations.id"), nullable=False, index=True)
+    category = db.Column(
+        db.Enum("requirement", "preference", "entity", "constraint", "confirmed_fact", name="memory_category"),
+        nullable=False,
+    )
+    mem_key = db.Column(db.String(100), nullable=False)  # tên cột "key" là từ khóa SQL nên đặt mem_key
+    value = db.Column(db.Text, nullable=False)
+    confidence = db.Column(db.Float, nullable=False)
+    source_message_id = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class BotIntentConfig(db.Model):
+    """Ý định (intent) do chủ bot khai báo — tùy chọn; bot không khai báo thì intent là nhãn tự do của AI."""
+
+    __tablename__ = "bot_intent_config"
+    __table_args__ = (db.UniqueConstraint("bot_id", "intent_name", name="uq_bot_intent_name"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    bot_id = db.Column(db.Integer, db.ForeignKey("bots.id"), nullable=False, index=True)
+    intent_name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    required_slots = db.Column(db.JSON, nullable=True)  # ["product", "budget"]
+    optional_slots = db.Column(db.JSON, nullable=True)
+
+
+class ConversationMessageEmbedding(db.Model):
+    """Đánh dấu tin nhắn đã được embed vào collection Chroma "history_<bot_id>" (vector nằm ở Chroma, không ở MySQL).
+    Tin chưa có dòng ở đây = việc nền còn phải làm (worker quét, xem workers/context_jobs.py)."""
+
+    __tablename__ = "conversation_message_embeddings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey("messages.id"), nullable=False, unique=True)
+    bot_id = db.Column(db.Integer, db.ForeignKey("bots.id"), nullable=False, index=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey("conversations.id"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class Followup(db.Model):

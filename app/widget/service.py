@@ -146,13 +146,6 @@ def receive_message(bot: Bot, message: str, visitor_id: str | None, conversation
         db.session.flush()
 
     paused = _staff_has_taken_over(conversation)
-    recent = (
-        Message.query.filter_by(conversation_id=conversation.id)
-        .order_by(Message.id.desc())
-        .limit(dashboard_service.HISTORY_MESSAGES)
-        .all()
-    )
-    history = [(m.sender, m.content[: dashboard_service.HISTORY_CHARS]) for m in reversed(recent) if m.sender != "staff"]
 
     customer_message = Message(conversation_id=conversation.id, sender="customer", content=message)
     db.session.add(customer_message)
@@ -170,14 +163,12 @@ def receive_message(bot: Bot, message: str, visitor_id: str | None, conversation
             "last_message_id": customer_message.id,
         }
 
-    reply = dashboard_service.generate_reply(bot, message, history)
-
-    bot_message = Message(conversation_id=conversation.id, sender="bot", content=reply)
-    db.session.add(bot_message)
-    db.session.commit()
+    # Lịch sử, tóm tắt, bộ nhớ, RAG và cây quyết định nằm trong core/context_engine; tin bot (kèm decision_trace + usage) đã
+    # được lưu + commit bên trong.
+    bot_message = dashboard_service.reply_to_customer(bot, conversation, customer_message)
     inbox_service.emit_message(bot.team_id, conversation.id, bot_message.id)
     return {
-        "reply": reply,
+        "reply": bot_message.content,
         "conversation_id": conversation.id,
         "visitor_id": visitor_id,
         "last_message_id": bot_message.id,

@@ -2,7 +2,7 @@
 độ sáng tạo gợi ý. Chọn mẫu chỉ ĐIỀN SẴN vào form; không lưu gì cho tới khi người dùng bấm "Lưu thay đổi".
 
 Chỉ dẫn viết theo cấu trúc Vai trò / Phong cách / Nhiệm vụ / Giới hạn. Thông tin thực tế (giá, chính sách, số
-liệu...) KHÔNG nằm trong mẫu — trợ lý lấy từ tài liệu ở Bước 2 (xem quy tắc "không bịa" trong rag_engine.build_prompt).
+liệu...) KHÔNG nằm trong mẫu — trợ lý lấy từ tài liệu ở Bước 2 (xem quy tắc "không bịa" trong core/context_engine/prompts.py).
 Mẫu cũng không hứa những việc trợ lý chưa làm được (tạo đơn, thanh toán, xác nhận đặt phòng/bàn trực tiếp).
 
 `icon` là markup SVG viền 24x24 (bộ Lucide, ISC) do server cấp — người dùng không nhập được nên an toàn để in ra
