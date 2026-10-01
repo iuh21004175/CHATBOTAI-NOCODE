@@ -100,7 +100,47 @@ def capture_contact(team_id: int, conversation: Conversation, text: str) -> Cust
     email = extract_email(text)
     if not (phone or email):
         return None
+    return _attach_contact(team_id, conversation, phone=phone, email=email)
 
+
+# Tên slot liên hệ trong intent do chủ bot khai báo (required_slots/optional_slots của BotIntentConfig): khi AI điền được các slot
+# này qua cơ chế slot-filling, thông tin được ghi thẳng vào Customer — không cần nhân viên nhập tay.
+CONTACT_NAME_SLOT = "contact_name"
+CONTACT_PHONE_SLOT = "contact_phone"
+CONTACT_EMAIL_SLOT = "contact_email"
+
+
+def _slot_text(value) -> str | None:
+    """Giá trị slot do LLM sinh: chỉ nhận chuỗi/số đơn giản (số điện thoại có thể là số), bỏ list/dict/None/rỗng."""
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    return str(value).strip() or None
+
+
+def clean_name(raw) -> str | None:
+    """Tên khách từ slot: gộp khoảng trắng, không rỗng, không dài quá cột; chuỗi trông như email/số điện thoại thì không phải tên."""
+    name = " ".join(raw.split()) if isinstance(raw, str) else ""  # số không phải tên (khác số điện thoại)
+    if not name or len(name) > MAX_NAME_CHARS or normalize_email(name) or normalize_phone(name):
+        return None
+    return name
+
+
+def capture_contact_from_slots(team_id: int, conversation: Conversation, slots: dict | None) -> Customer | None:
+    """Ghi slot contact_name / contact_phone / contact_email (nếu đã điền và hợp lệ) vào Customer của hội thoại — cùng quy tắc
+    như capture_contact: tạo hoặc dùng lại Customer trong team, chỉ điền trường còn trống, không ghi đè. Giá trị không hợp lệ
+    (số điện thoại/email sai định dạng) bị bỏ qua chứ không lưu dữ liệu rác. Không commit — người gọi commit cùng lượt trả lời."""
+    slots = slots or {}
+    name = clean_name(slots.get(CONTACT_NAME_SLOT))
+    phone = normalize_phone(_slot_text(slots.get(CONTACT_PHONE_SLOT)))
+    email = normalize_email(_slot_text(slots.get(CONTACT_EMAIL_SLOT)))
+    if not (name or phone or email):
+        return None
+    return _attach_contact(team_id, conversation, name=name, phone=phone, email=email)
+
+
+def _attach_contact(
+    team_id: int, conversation: Conversation, *, name: str | None = None, phone: str | None = None, email: str | None = None
+) -> Customer:
     customer = conversation.customer_ref
     if customer is None:
         conditions = []
@@ -108,16 +148,19 @@ def capture_contact(team_id: int, conversation: Conversation, text: str) -> Cust
             conditions.append(Customer.phone == phone)
         if email:
             conditions.append(Customer.email == email)
+        # Chỉ có tên (chưa có phone/email) thì không có khóa nào để nhận ra khách cũ: luôn là khách mới của hội thoại này
         customer = (
-            Customer.query.filter(Customer.team_id == team_id, db.or_(*conditions))
-            .order_by(Customer.id.asc())
-            .first()
+            Customer.query.filter(Customer.team_id == team_id, db.or_(*conditions)).order_by(Customer.id.asc()).first()
+            if conditions
+            else None
         )
         if customer is None:
             customer = Customer(team_id=team_id, stage=DEFAULT_STAGE)
             db.session.add(customer)
         conversation.customer_ref = customer
 
+    if name and not customer.name:
+        customer.name = name
     if phone and not customer.phone:
         customer.phone = phone
     if email and not customer.email:

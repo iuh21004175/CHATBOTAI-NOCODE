@@ -1,9 +1,9 @@
-"""Bước 1 — cấu hình Decision Engine (không còn mức cấu hình, công tắc bật/tắt tính năng đã cố định): kiểm tra form
-(thuần) và lưu/hiển thị qua route thật (DB *_test)."""
+"""Bước 1 — cấu hình Decision Engine: chế độ Cơ bản/Nâng cao (config_tier), tham số nội bộ RAG/Context Engine không nhận từ form,
+công tắc bật/tắt tính năng đã cố định: kiểm tra form (thuần) và lưu/hiển thị qua route thật (DB *_test)."""
 import unittest
 
 from app.dashboard import service
-from core.context_engine.settings import DEFAULTS, FIXED_TOGGLES
+from core.context_engine.settings import ADVANCED_FIELDS, DEFAULTS, ENGINE_INTERNAL, FIXED_TOGGLES, MEMORY_LEVELS
 from tests.db_case import DbCase
 
 
@@ -22,42 +22,73 @@ class ParseEngineForm(unittest.TestCase):
         for name, expected in FIXED_TOGGLES.items():
             self.assertEqual(values[name], expected, name)
 
-    def test_all_numeric_fields_are_always_readable(self):
+    def test_advanced_reads_every_advanced_field(self):
         values, error = service.parse_engine_form(form(
-            recent_message_limit=20, rag_distance_threshold="1.25", max_candidate_count=9, memory_min_confidence=0.3))
+            config_tier="advanced", recent_message_limit=20, recent_token_limit=3000, summary_trigger_tokens=9000, summary_max_tokens=800))
         self.assertIsNone(error)
-        self.assertEqual((values["recent_message_limit"], values["rag_distance_threshold"], values["max_candidate_count"]),
-                          (20, 1.25, 9))
+        self.assertEqual(values["config_tier"], "advanced")
+        self.assertEqual([values[n] for n in ADVANCED_FIELDS], [20, 3000, 9000, 800])
+
+    def test_tier_missing_reads_numbers_without_changing_the_tier(self):
+        values, error = service.parse_engine_form(form(recent_message_limit=20))
+        self.assertIsNone(error)
+        self.assertEqual(values["recent_message_limit"], 20)
+        self.assertNotIn("config_tier", values)
+
+    def test_basic_maps_memory_level_to_the_preset_and_ignores_raw_numbers(self):
+        for level, (messages, tokens) in MEMORY_LEVELS.items():
+            values, error = service.parse_engine_form(form(
+                config_tier="basic", memory_level=level, recent_message_limit=30, summary_max_tokens=2000))
+            self.assertIsNone(error, level)
+            self.assertEqual((values["recent_message_limit"], values["recent_token_limit"]), (messages, tokens), level)
+            self.assertNotIn("summary_max_tokens", values, "ô số của chế độ Nâng cao bị bỏ qua khi đang ở Cơ bản")
+
+    def test_basic_custom_or_blank_memory_level_keeps_stored_values(self):
+        for level in ("custom", ""):
+            values, error = service.parse_engine_form(form(config_tier="basic", memory_level=level))
+            self.assertIsNone(error, level)
+            self.assertNotIn("recent_message_limit", values)
+            self.assertNotIn("recent_token_limit", values)
+
+    def test_invalid_tier_or_memory_level_is_rejected(self):
+        self.assertTrue(service.parse_engine_form(form(config_tier="expert"))[1])
+        self.assertTrue(service.parse_engine_form(form(config_tier="basic", memory_level="huge"))[1])
+
+    def test_engine_internal_fields_are_never_read_from_the_form(self):
+        raw = {name: "1" for name in ENGINE_INTERNAL}
+        for tier in ("basic", "advanced", None):
+            values, error = service.parse_engine_form(form(config_tier=tier, **raw))
+            self.assertIsNone(error, tier)
+            self.assertFalse(set(ENGINE_INTERNAL) & set(values), tier)
 
     def test_blank_or_missing_numbers_keep_stored_value(self):
-        values, _ = service.parse_engine_form(form(recent_message_limit="  ", rag_top_k=None))
+        values, _ = service.parse_engine_form(form(config_tier="advanced", recent_message_limit="  ", summary_max_tokens=None))
         self.assertNotIn("recent_message_limit", values)
-        self.assertNotIn("rag_top_k", values)
+        self.assertNotIn("summary_max_tokens", values)
 
     def test_out_of_range_and_bad_numbers_are_rejected_not_clamped(self):
         cases = {
             "recent_message_limit": ["0", "31", "abc", "1.5", "-3"],
-            "rag_distance_threshold": ["0.1", "1.95", "nan", "inf", "x"],
-            "rag_top_k": ["21", "0"],
+            "recent_token_limit": ["199", "8001", "nan", "inf", "x"],
+            "summary_max_tokens": ["99", "2001"],
         }
         for name, bad_values in cases.items():
             for bad in bad_values:
                 with self.subTest(name=name, value=bad):
-                    values, error = service.parse_engine_form(form(**{name: bad}))
+                    values, error = service.parse_engine_form(form(config_tier="advanced", **{name: bad}))
                     self.assertIsNone(values)
                     self.assertTrue(error)
 
     def test_boundaries_are_accepted(self):
-        for name, (low, high) in {"recent_message_limit": (1, 30), "rag_distance_threshold": (0.2, 1.9)}.items():
+        for name, (low, high) in {"recent_message_limit": (1, 30), "recent_token_limit": (200, 8000)}.items():
             for value in (low, high):
-                values, error = service.parse_engine_form(form(**{name: value}))
+                values, error = service.parse_engine_form(form(config_tier="advanced", **{name: value}))
                 self.assertIsNone(error, (name, value))
 
     def test_validation(self):
         base = {"low_confidence_reply_mode": "ask_clarify"}
         self.assertTrue(service.parse_engine_form(form(low_confidence_reply_mode="explode"))[1])
         self.assertTrue(service.parse_engine_form(form(**base, low_confidence_decline_message="x" * 501))[1])
-        self.assertTrue(service.parse_engine_form(form(**base, context_pressure_warning=0.9, context_pressure_hard_limit=0.8))[1])
         values, error = service.parse_engine_form(form(**base, low_confidence_clarify_message="  Bạn nói rõ hơn?  ", low_confidence_decline_message=" "))
         self.assertIsNone(error)
         self.assertEqual(values["low_confidence_clarify_message"], "Bạn nói rõ hơn?")
@@ -94,12 +125,32 @@ class SetupRoute(DbCase):
         for name, default in DEFAULTS.items():
             self.assertEqual(getattr(s, name), default, name)
 
-    def test_get_renders_engine_fields_and_no_tier_selector(self):
+    def test_get_renders_tier_selector_defaulting_to_basic_and_hides_the_advanced_fields(self):
         html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
-        self.assertNotIn('id="config_tier"', html, "đã bỏ ô chọn mức cấu hình")
-        self.assertIn('name="rag_distance_threshold"', html)
+        self.assertIn('name="config_tier" value="basic" checked', html)
+        self.assertRegex(html, r'name="config_tier" value="advanced"\s*>')
+        self.assertIn('id="memory_level"', html)
+        self.assertRegex(html, r'data-tier-show="advanced" hidden')
+        self.assertNotRegex(html, r'data-tier-show="basic" hidden')
+        for name in ADVANCED_FIELDS:
+            self.assertIn(f'name="{name}"', html, name)
         self.assertIn('name="low_confidence_reply_mode"', html)
         self.assertNotIn('name="min_similarity"', html, "slider cosine cũ đã được thay bằng ngưỡng khoảng cách")
+
+    def test_advanced_tier_renders_the_advanced_block_visible_and_basic_block_hidden(self):
+        self.post(form(config_tier="advanced"))
+        html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
+        self.assertNotRegex(html, r'data-tier-show="advanced" hidden')
+        self.assertRegex(html, r'data-tier-show="basic" hidden')
+
+    def test_engine_internal_and_dead_fields_are_not_rendered_in_any_tier(self):
+        for tier in ("basic", "advanced"):
+            self.post(form(config_tier=tier))
+            html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
+            for name in (*ENGINE_INTERNAL, "forward_to_staff", "away_message"):
+                self.assertNotIn(f'name="{name}"', html, (tier, name))
+            self.assertNotIn("Chuyển tiếp cho nhân viên", html)
+            self.assertIn('name="collect_customer_info"', html)
 
     def test_fixed_toggles_are_not_rendered_as_controls(self):
         html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
@@ -110,15 +161,16 @@ class SetupRoute(DbCase):
     def test_model_settings_are_merged_into_smart_reply_card(self):
         html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
         self.assertNotIn("Cấu hình mô hình AI", html, "đã gộp vào card Trả lời thông minh")
-        card = html[html.index('id="engine-card"'):html.index("Chuyển tiếp &amp; thu thập dữ liệu")]
-        for field_id in ("language", "max_tokens", "temperature"):
+        card = html[html.index('id="engine-card"'):html.index('<div class="card-title">Thu thập dữ liệu</div>')]
+        for field_id in ("language", "max_tokens"):
             self.assertIn(f'id="{field_id}"', card, field_id)
         self.assertEqual(html.count('id="max_tokens"'), 1)
-        self.assertEqual(html.count('id="temperature"'), 1)
+        for gone in ('id="temperature"', 'name="temperature"', "Độ sáng tạo"):
+            self.assertNotIn(gone, html, "temperature không còn cấu hình theo bot")
 
     def test_labels_show_no_static_values(self):
         html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
-        for label in ("Token đầu ra tối đa", "Độ sáng tạo (temperature)", "Ngưỡng khoảng cách tra cứu"):
+        for label in ("Token đầu ra tối đa", "Số tin gần nhất đưa vào ngữ cảnh"):
             self.assertIn(f'>{label}</label>', html, f"nhãn '{label}' không kèm giá trị")
         for old_id in ("max-tokens-value", "temp-value"):
             self.assertNotIn(old_id, html)
@@ -129,19 +181,63 @@ class SetupRoute(DbCase):
             self.assertTrue(spec.get("help"), f"{spec['name']} thiếu mô tả tác dụng")
             self.assertIn(f'id="tip-{spec["name"]}"', html, spec["name"])
             self.assertIn(f'aria-describedby="tip-{spec["name"]}"', html, spec["name"])
-        for name in ("max_tokens", "temperature", "rag_distance_threshold"):
-            self.assertIn(f'<output class="slider-val" id="{name}-value"', html, name)
+        self.assertIn('<output class="slider-val" id="max_tokens-value"', html)
 
-    def test_save_honours_all_numeric_fields_and_fixes_toggles(self):
-        response = self.post(form(recent_message_limit=20, rag_distance_threshold="1.2",
-                                   max_candidate_count=9, low_confidence_reply_mode="decline"))
+    def test_advanced_save_honours_the_advanced_fields_and_fixes_toggles(self):
+        response = self.post(form(config_tier="advanced", recent_message_limit=20, recent_token_limit=3000, summary_trigger_tokens=9000,
+                                   summary_max_tokens=800, low_confidence_reply_mode="decline"))
         self.assertEqual(response.status_code, 302)
         s = self.settings()
-        self.assertEqual((s.recent_message_limit, s.rag_distance_threshold, s.max_candidate_count),
-                          (20, 1.2, 9))
+        self.assertEqual(s.config_tier, "advanced")
+        self.assertEqual([getattr(s, n) for n in ADVANCED_FIELDS], [20, 3000, 9000, 800])
         self.assertEqual(s.low_confidence_reply_mode, "decline")
         for name, expected in FIXED_TOGGLES.items():
             self.assertEqual(getattr(s, name), expected, name)
+
+    def test_basic_save_applies_the_memory_level_preset_and_keeps_the_advanced_only_values(self):
+        self.post(form(config_tier="advanced", summary_max_tokens=800))
+        for level, (messages, tokens) in MEMORY_LEVELS.items():
+            self.post(form(config_tier="basic", memory_level=level, recent_message_limit=30, summary_max_tokens=100))
+            s = self.settings()
+            self.assertEqual((s.config_tier, s.recent_message_limit, s.recent_token_limit), ("basic", messages, tokens), level)
+            self.assertEqual(s.summary_max_tokens, 800, "ô số của Nâng cao bị bỏ qua khi lưu ở Cơ bản, giá trị cũ giữ nguyên")
+
+    def test_custom_memory_level_is_offered_and_saving_it_keeps_the_stored_numbers(self):
+        self.post(form(config_tier="advanced", recent_message_limit=7, recent_token_limit=1500))
+        html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
+        self.assertRegex(html, r'<option value="custom" selected>')
+        self.post(form(config_tier="basic", memory_level="custom"))
+        s = self.settings()
+        self.assertEqual((s.config_tier, s.recent_message_limit, s.recent_token_limit), ("basic", 7, 1500))
+
+    def test_preset_memory_level_is_preselected_and_no_custom_option_then(self):
+        html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
+        self.assertRegex(html, r'<option value="medium" selected>')
+        self.assertNotIn('value="custom"', html)
+
+    def test_engine_internal_values_in_the_form_or_db_never_reach_the_engine(self):
+        from core.context_engine.settings import EngineSettings
+
+        self.post(form(config_tier="advanced", **{name: "1" for name in ENGINE_INTERNAL}))
+        s = self.settings()
+        for name in ENGINE_INTERNAL:
+            self.assertEqual(getattr(s, name), DEFAULTS[name], f"form không được ghi {name}")
+        self.set_settings(rag_top_k=12)
+        self.assertEqual(EngineSettings.from_model(self.settings()).rag_top_k, DEFAULTS["rag_top_k"])
+
+    def test_invalid_tier_saves_nothing(self):
+        response = self.post(form(config_tier="expert", recent_message_limit=20))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Chế độ cấu hình không hợp lệ", response.get_data(as_text=True))
+        self.assertEqual(self.settings().recent_message_limit, DEFAULTS["recent_message_limit"])
+
+    def test_saving_does_not_overwrite_the_hidden_forward_and_away_columns(self):
+        s = self.settings()
+        s.forward_to_staff, s.away_message = False, "Ngoài giờ làm việc"
+        self.db.session.commit()
+        self.post(form(config_tier="basic", memory_level="medium"))
+        s = self.settings()
+        self.assertEqual((s.forward_to_staff, s.away_message), (False, "Ngoài giờ làm việc"))
 
     def test_toggles_stay_fixed_even_if_client_sends_the_opposite(self):
         # UI không còn gửi các trường này, nhưng nếu có ai POST thủ công giá trị ngược lại thì server vẫn phải bỏ qua.
@@ -194,8 +290,8 @@ class SetupRoute(DbCase):
         return (client or self.client).post(f"/bots/{(bot or self.bot).id}/setup/cost-estimate", data=payload, headers={"X-CSRF-Token": csrf})
 
     def test_cost_estimate_uses_unsaved_form_values_and_saves_nothing(self):
-        small = self.estimate({**form(), "max_tokens": "200", "temperature": "0.3", "language": "vi"})
-        big = self.estimate({**form(), "max_tokens": "2500", "temperature": "0.3", "language": "vi"})
+        small = self.estimate({**form(), "max_tokens": "200", "language": "vi"})
+        big = self.estimate({**form(), "max_tokens": "2500", "language": "vi"})
         self.assertEqual((small.status_code, big.status_code), (200, 200))
         s, b = small.get_json()["question"], big.get_json()["question"]
         self.assertLess(s["max"]["vnd"]["off_peak"], b["max"]["vnd"]["off_peak"])
@@ -212,12 +308,19 @@ class SetupRoute(DbCase):
         en = self.estimate({**form(), "instructions": "Ngắn.", "language": "en"}).get_json()
         self.assertNotEqual(en["question"]["min"]["input"], base["question"]["min"]["input"])
 
-    def test_cost_estimate_honours_every_numeric_field(self):
+    def test_cost_estimate_follows_the_tier_and_memory_settings_on_the_form(self):
+        def part(result, key):
+            return next(c for c in result["components"] if c["key"] == key)["max"]
+
         default = self.estimate(form()).get_json()
-        adjusted = self.estimate({**form(), "rag_max_context_tokens": "200"}).get_json()
-        rag = next(c for c in adjusted["components"] if c["key"] == "rag")
-        self.assertEqual(rag["max"], 200)
-        self.assertLess(adjusted["question"]["max"]["input"], default["question"]["max"]["input"])
+        short = self.estimate({**form(), "config_tier": "basic", "memory_level": "short"}).get_json()
+        self.assertLess(part(short, "recent"), part(default, "recent"))
+        self.assertLess(short["question"]["max"]["input"], default["question"]["max"]["input"])
+        advanced = self.estimate({**form(), "config_tier": "advanced", "recent_token_limit": "300", "summary_max_tokens": "150"}).get_json()
+        self.assertEqual(part(advanced, "recent"), 300)
+        self.assertLess(part(advanced, "summary"), part(default, "summary"))
+        basic_ignores_summary = self.estimate({**form(), "config_tier": "basic", "memory_level": "medium", "summary_max_tokens": "150"}).get_json()
+        self.assertEqual(part(basic_ignores_summary, "summary"), part(default, "summary"), "chế độ Cơ bản bỏ qua ô số của Nâng cao")
 
     def test_cost_estimate_reflects_fixed_toggles(self):
         result = self.estimate(form()).get_json()
@@ -253,7 +356,7 @@ class SetupRoute(DbCase):
         html = self.client.get(f"/bots/{self.bot.id}/setup").get_data(as_text=True)
         self.assertIn('id="cost-box"', html)
         self.assertIn(f'data-url="/bots/{self.bot.id}/setup/cost-estimate"', html)
-        card = html[html.index('id="engine-card"'):html.index("Chuyển tiếp &amp; thu thập dữ liệu")]
+        card = html[html.index('id="engine-card"'):html.index('<div class="card-title">Thu thập dữ liệu</div>')]
         self.assertIn('id="cost-box"', card, "ô chi phí nằm trong card Trả lời thông minh")
 
     def preview(self, payload, csrf="tok"):

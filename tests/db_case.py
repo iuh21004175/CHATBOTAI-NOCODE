@@ -8,8 +8,8 @@ from sqlalchemy import text
 from tests.helpers import FakeLLM, db_test_enabled
 
 _TABLES_IN_DELETE_ORDER = (
-    "conversation_message_embeddings", "structured_memory", "conversation_state", "bot_intent_config", "messages",
-    "conversations", "customers", "documents", "followups", "bot_settings", "bots", "api_tokens", "team_members", "users", "teams",
+    "pending_widget_actions", "module_actions", "module_urls", "bot_modules", "payment_orders", "credit_transactions", "execution_costs", "credit_accounts", "agent_executions", "conversation_message_embeddings", "structured_memory", "conversation_state", "bot_intent_config", "messages",
+    "conversations", "customers", "documents", "followups", "bot_settings", "bot_domains", "bots", "api_tokens", "team_invitations", "team_members", "users", "teams",
 )
 
 
@@ -20,6 +20,15 @@ class DbCase(unittest.TestCase):
         from app import create_app
 
         cls.app = create_app()
+
+        @cls.app.teardown_request
+        def _forget_login_between_requests(_exc):
+            # setUp giữ 1 app context suốt test nên `g` sống qua nhiều request của nhiều test client; Flask-Login cache
+            # current_user trong g._login_user -> request sau sẽ "thừa hưởng" người dùng của request trước. Production mỗi
+            # request có app context riêng nên không xảy ra.
+            from flask import g
+
+            g.pop("_login_user", None)
 
     def setUp(self):
         from app.dashboard import service
@@ -50,7 +59,12 @@ class DbCase(unittest.TestCase):
         from tests.test_engine import retrieval
 
         self.retrieval = retrieval()
+        from config import Config
+
         for patcher in (
+            # Kết quả test không được phụ thuộc .env của máy chạy: đường mặc định là 1 lệnh gọi DeepSeek (agent tắt). Test cần agent tự
+            # thay make_agent_runner bằng runner giả (xem test_agent_flow).
+            mock.patch.object(Config, "AGENT_ENABLED", False),
             mock.patch("core.context_engine.engine.deepseek_call", lambda temperature, max_tokens: self.llm),
             mock.patch.object(rag_engine, "retrieve", lambda *a, **k: self.retrieval),
             mock.patch("app.inbox.service.emit_message", lambda *a, **k: None),

@@ -6,13 +6,23 @@ Nguồn duy nhất cho: giá trị mặc định (DEFAULTS), khoảng hợp lệ
 Các công tắc bật/tắt tính năng (rag_enabled, summary_enabled, structured_memory_enabled, intent_tracking_enabled,
 slot_filling_enabled, clarification_enabled) không còn cho chủ bot chỉnh: hệ thống đã cố định giá trị vận hành
 (FIXED_TOGGLES) áp dụng cho mọi bot, bất kể giá trị đang lưu trong DB (cột DB vẫn còn nhưng không còn được đọc).
-Mọi thông số còn lại (RANGES) luôn có thể chỉnh — không còn khái niệm "mức cấu hình" giới hạn trường nào hiện/ẩn.
+
+Tham số nội bộ của RAG/Context Engine (ENGINE_INTERNAL: ngưỡng khoảng cách, số đoạn giữ lại, ngưỡng nén ngữ cảnh...) cũng
+không còn cho chủ bot chỉnh: engine luôn dùng DEFAULTS bất kể giá trị đang lưu trong DB (cột DB vẫn còn, không được đọc).
+
+Chế độ cấu hình Bước 1 (cột bot_settings.config_tier): "basic" (mặc định) chỉ chọn mức nhớ hội thoại theo MEMORY_LEVELS;
+"advanced" chỉnh được ADVANCED_FIELDS dạng số. Trường ADVANCED_ONLY không thuộc chế độ hiện tại luôn dùng mặc định
+(hạ về basic không để lại giá trị ẩn còn hiệu lực; lên lại advanced thì giá trị đã lưu có hiệu lực trở lại).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
 DEFAULT_LANGUAGE = "vi"
+# Nhiệt độ lấy mẫu của đường 1 lệnh gọi (AGENT_ENABLED tắt): cố định cho mọi bot, không còn cấu hình theo bot — Harness của agent
+# không truyền được tham số này nên giữ cấu hình riêng cho đường cũ chỉ tạo cảm giác có tác dụng. Cột bot_settings.temperature
+# vẫn còn nhưng không được đọc.
+DEFAULT_TEMPERATURE = 0.7
 
 DEFAULTS: dict = {
     "rag_enabled": True,
@@ -78,6 +88,47 @@ FIXED_TOGGLES: dict[str, bool] = {
     "clarification_enabled": True,
 }
 
+# Tham số nội bộ của RAG/Context Engine: engine luôn dùng DEFAULTS (không đọc DB), chủ bot không chỉnh được ở bất kỳ chế độ nào.
+# Với agent, các giá trị này là giá trị khởi tạo cho công cụ tra cứu (search_knowledge_base), do agent tự điều chỉnh khi cần.
+ENGINE_INTERNAL: tuple[str, ...] = (
+    "rag_top_k", "rag_rerank_top_n", "rag_distance_threshold", "rag_max_context_tokens", "max_candidate_count",
+    "intent_confidence_threshold", "slot_completion_threshold",
+    "context_pressure_warning", "context_pressure_hard_limit", "max_context_tokens",
+)
+
+CONFIG_TIERS = ("basic", "advanced")
+DEFAULT_TIER = "basic"
+
+# Chế độ Nâng cao: các thông số bộ nhớ hội thoại chỉnh dạng số. Chế độ Cơ bản chỉ chọn MEMORY_LEVELS (ghi vào 2 trường
+# recent_*); 2 trường summary_* ngoài chế độ Nâng cao luôn dùng mặc định.
+ADVANCED_FIELDS: tuple[str, ...] = ("recent_message_limit", "recent_token_limit", "summary_trigger_tokens", "summary_max_tokens")
+ADVANCED_ONLY: tuple[str, ...] = ("summary_trigger_tokens", "summary_max_tokens")
+
+# Mức nhớ hội thoại của chế độ Cơ bản: khóa -> (recent_message_limit, recent_token_limit). "medium" = mặc định hệ thống.
+MEMORY_LEVELS: dict[str, tuple[int, int]] = {
+    "short": (6, 1200),
+    "medium": (DEFAULTS["recent_message_limit"], DEFAULTS["recent_token_limit"]),
+    "long": (20, 4000),
+}
+CUSTOM_MEMORY_LEVEL = "custom"  # giá trị đang lưu không khớp mức nào (chỉnh ở chế độ Nâng cao): giữ nguyên, không ghi đè
+
+
+def normalize_tier(value) -> str:
+    """Giá trị cột config_tier -> "basic" | "advanced". "expert" (giá trị còn lại của enum cũ) coi là advanced;
+    giá trị lạ/rỗng về mặc định."""
+    if value in ("advanced", "expert"):
+        return "advanced"
+    return DEFAULT_TIER
+
+
+def memory_level_of(recent_message_limit, recent_token_limit) -> str:
+    """Mức nhớ khớp cặp giá trị đang lưu, hoặc CUSTOM_MEMORY_LEVEL."""
+    for key, pair in MEMORY_LEVELS.items():
+        if (recent_message_limit, recent_token_limit) == pair:
+            return key
+    return CUSTOM_MEMORY_LEVEL
+
+
 # Ngân sách JSON có cấu trúc (intent, slots, memory_updates, confidence...) cộng thêm vào max_tokens của câu trả lời;
 # thiếu phần này JSON bị cắt ngang ở max_tokens -> không parse được.
 JSON_OVERHEAD_TOKENS = 600
@@ -131,9 +182,13 @@ class EngineSettings:
     def from_model(cls, row) -> "EngineSettings":
         """row: app.models.BotSettings (hoặc bất kỳ đối tượng có cùng thuộc tính)."""
         values: dict = {}
+        advanced = normalize_tier(getattr(row, "config_tier", None)) == "advanced"
         for name, default in DEFAULTS.items():
             if name in FIXED_TOGGLES:  # công tắc cố định: không đọc DB/form
                 values[name] = FIXED_TOGGLES[name]
+                continue
+            if name in ENGINE_INTERNAL or (name in ADVANCED_ONLY and not advanced):  # không phải thứ chủ bot chỉnh ở chế độ này
+                values[name] = default
                 continue
             stored = getattr(row, name, None)
             if stored is None:
@@ -145,19 +200,12 @@ class EngineSettings:
             else:  # 2 câu trả lời sẵn có của chủ bot
                 values[name] = (str(stored).strip() or None)
 
-        # Bất biến giữa các trường (đọc dữ liệu cũ/sai không được làm hỏng engine)
-        values["rag_rerank_top_n"] = min(values["rag_rerank_top_n"], values["rag_top_k"])
-        if values["context_pressure_hard_limit"] <= values["context_pressure_warning"]:
-            values["context_pressure_warning"] = DEFAULTS["context_pressure_warning"]
-            values["context_pressure_hard_limit"] = DEFAULTS["context_pressure_hard_limit"]
-
-        temperature = getattr(row, "temperature", None)
         max_tokens = getattr(row, "max_tokens", None)
         language = getattr(row, "language", None)
         return cls(
             language=language if language in ("vi", "en") else DEFAULT_LANGUAGE,
             instructions=(getattr(row, "instructions", None) or "").strip(),
-            temperature=0.7 if temperature is None else float(temperature),  # 0 là giá trị hợp lệ
+            temperature=DEFAULT_TEMPERATURE,
             max_tokens=int(max_tokens) if max_tokens else 500,
             **values,
         )
@@ -168,6 +216,6 @@ class EngineSettings:
         base = {f.name: None for f in fields(cls)}
         base.update(DEFAULTS)
         base.update(FIXED_TOGGLES)
-        base.update(language=DEFAULT_LANGUAGE, instructions="", temperature=0.7, max_tokens=500)
+        base.update(language=DEFAULT_LANGUAGE, instructions="", temperature=DEFAULT_TEMPERATURE, max_tokens=500)
         base.update(overrides)
         return cls(**base)

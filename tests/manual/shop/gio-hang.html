@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Giỏ hàng — Cửa hàng thử</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- TRANG THỬ cho kiểm thử thủ công Phase M. Không phải mã của sản phẩm. -->
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  nav { display: flex; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid #ddd; margin-bottom: 16px; }
+  .btn { display: inline-block; padding: 8px 16px; border-radius: 6px; background: #1d4ed8; color: #fff; text-decoration: none; }
+</style>
+</head>
+<body>
+<nav>
+  <a id="home-link" href="san-pham.html">Sản phẩm</a>
+  <a id="cart-link" class="nav cart" href="gio-hang.html">Giỏ hàng</a>
+</nav>
+<h1>Giỏ hàng của bạn</h1>
+<p>Số sản phẩm trong giỏ: <strong id="cart-items">0</strong></p>
+<a id="go-checkout" class="btn" href="thanh-toan.html">Tiến hành thanh toán</a>
+<script>
+  document.getElementById('cart-items').textContent = Number(localStorage.getItem('shop-demo-cart') || 0);
+  (function () {
+    var bot = sessionStorage.getItem('shop-demo-bot'), server = sessionStorage.getItem('shop-demo-server') || 'http://localhost:5000';
+    if (!bot) return;
+    var s = document.createElement('script');
+    s.src = server + '/widget/embed.js';
+    s.setAttribute('data-bot-id', bot);
+    document.body.appendChild(s);
+  })();
+</script>
+</body>
+</html>

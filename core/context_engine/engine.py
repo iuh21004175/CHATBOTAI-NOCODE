@@ -14,10 +14,11 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from core import rag_engine
+from core import attachment_rag, rag_engine
 from core.context_engine import builder, decision as decision_mod, history_retrieval, state
+from core.context_engine.agent import runtime as agent_runtime
 from core.context_engine.cost import LLMUsageTracker, Usage
 from core.context_engine.settings import JSON_OVERHEAD_TOKENS, EngineSettings
 from core.context_engine.structured import LLMCall, StructuredOutput, call_structured, deepseek_call
@@ -34,6 +35,7 @@ class TurnRequest:
     intents: list[state.IntentSpec]
     recent_rows: list[builder.RecentRow]  # cũ -> mới, KHÔNG gồm câu hỏi hiện tại
     conversation_id: int | None = None  # None = khung chat thử không lưu hội thoại -> không có Historical Retrieval
+    attachments: dict[int, str] = field(default_factory=dict)  # {attachment_id: tên tệp} khách đã gửi trong hội thoại này (module "Đọc tài liệu"); rỗng = không có
 
 
 @dataclass
@@ -43,8 +45,9 @@ class TurnResult:
     output: StructuredOutput
     state_update: state.StateUpdate
     trace: dict
-    usage: Usage  # lệnh gọi DeepSeek chính (gồm lần gọi lại do JSON lỗi)
+    usage: Usage  # lệnh gọi DeepSeek chính (gồm lần gọi lại do JSON lỗi; ở chế độ agent: cộng mọi lượt suy luận của agent)
     extra_calls: list[dict]  # lệnh gọi phụ (history_lookup)
+    agent: dict | None = None  # chế độ AI Agent: bản ghi agent_executions của lượt (None khi engine dùng 1 lệnh gọi như cũ)
 
 
 def _r(value, digits: int = 4):
@@ -57,11 +60,18 @@ def run_turn(
     llm_call: LLMCall | None = None,
     retrieve_fn=None,
     history_search_fn=None,
+    attachment_search_fn=None,
+    agent_runner: "agent_runtime.AgentRunner | None" = None,
 ) -> TurnResult:
     """retrieve_fn/history_search_fn/llm_call: điểm tiêm phụ thuộc cho test; mặc định là RAG, Chroma và DeepSeek thật
-    (phân giải lúc gọi, không phải lúc định nghĩa hàm, để có thể patch)."""
+    (phân giải lúc gọi, không phải lúc định nghĩa hàm, để có thể patch).
+
+    agent_runner: có thì Bước B là MỘT LƯỢT CHẠY AGENT (agent tự tra cứu thêm, kết thúc bằng finish_answer/ask_clarification/decline)
+    thay cho 1 lệnh gọi DeepSeek JSON; Bước A và cây quyết định (Bước C) giữ nguyên nên các chốt an toàn không đổi. Bước F (tra cứu
+    lịch sử) không dùng ở chế độ này."""
     retrieve_fn = retrieve_fn or rag_engine.retrieve
     history_search_fn = history_search_fn or history_retrieval.search_history
+    attachment_search_fn = attachment_search_fn or attachment_rag.search
     settings = request.settings
     tracker = LLMUsageTracker()
 
@@ -81,6 +91,21 @@ def run_turn(
     # candidate_count == 0 / spread không áp dụng — quy tắc "không bịa" trong prompt vẫn còn hiệu lực.
     rag_used = settings.rag_enabled and not retrieval.knowledge_empty
 
+    # Tệp khách gửi (module "Đọc tài liệu"): đoạn liên quan đứng TRƯỚC tri thức của bot (khách chủ động gửi nên là thứ họ đang hỏi tới) và đi qua đúng đường cắt ngân sách/nén
+    # như mọi đoạn khác. Coi là 1 ứng viên hợp lệ dù xa về ngữ nghĩa ("tóm tắt tệp này"): nếu không, nhánh "không có ngữ cảnh" sẽ từ chối oan khi bot có Knowledge Base
+    # mà chẳng đoạn nào của nó khớp câu hỏi. Không đụng tới khoảng cách/spread của tri thức nên không gây hỏi làm rõ vì "quá nhiều ứng viên".
+    attachment_trace = None
+    if request.attachments:
+        match = attachment_search_fn(request.bot_id, request.attachments, request.question)
+        attachment_trace = {"files": len(request.attachments), "passages": len(match.passages)}
+        if match.passages:
+            retrieval = dataclasses.replace(
+                retrieval,
+                passages=[*match.passages, *retrieval.passages],
+                candidate_count=max(retrieval.candidate_count, 1),
+                top_distance=match.best_distance if retrieval.top_distance is None else retrieval.top_distance,
+            )
+
     # Chỉ được hỏi thu hẹp khi hỏi làm rõ đang bật; tắt thì đưa các chunk liên quan nhất còn vừa ngân sách và trả lời
     # ngay — không còn trần số lượt liên tiếp (AI Agent tự quyết định khi nào đủ thông tin để trả lời).
     plan = builder.build_plan(
@@ -98,10 +123,22 @@ def run_turn(
     context_unusable = bool(retrieval.passages) and not plan.passages
     messages = builder.MessageBuilder.build(plan)
 
-    # ---- B. Đúng 1 lệnh gọi DeepSeek chính ----
-    call = llm_call or deepseek_call(settings.temperature, settings.max_tokens + JSON_OVERHEAD_TOKENS)
+    # ---- B. Đúng 1 lệnh gọi DeepSeek chính (hoặc 1 lượt chạy agent) ----
     started = time.monotonic()
-    output = call_structured(messages, call, tracker)
+    agent_info = None
+    call = None
+    if agent_runner is not None:
+        agent_result = agent_runner.run(
+            bot_id=request.bot_id, settings=settings, intents=request.intents, plan=plan, tracker=tracker,
+            conversation_id=request.conversation_id, pressure_level=level,
+        )
+        output, agent_info = agent_result.output, agent_result.info
+        # Tín hiệu truy xuất hiệu lực = tốt nhất của (tra cứu ban đầu, các lần agent tự tra cứu thêm)
+        retrieval = agent_runtime.merge_retrieval(retrieval, agent_result.searches)
+        agent_info["issues_count"] = len(agent_info.get("issues") or [])
+    else:
+        call = llm_call or deepseek_call(settings.temperature, settings.max_tokens + JSON_OVERHEAD_TOKENS)
+        output = call_structured(messages, call, tracker)
     llm_seconds = time.monotonic() - started
 
     # ---- C. Cây quyết định ----
@@ -170,11 +207,14 @@ def run_turn(
         "main_llm_calls": tracker.main_call_count,
         "llm_seconds": _r(llm_seconds, 2),
         "history_lookup": history_trace,
+        "attachments": attachment_trace,
         "extra_llm_calls": tracker.extra_calls,
     }
+    if agent_info is not None:
+        trace["agent"] = {k: v for k, v in agent_info.items() if k not in ("started_at", "finished_at")}
     return TurnResult(
         decision=result.decision, reply=reply, output=output, state_update=update, trace=trace,
-        usage=tracker.main_usage, extra_calls=tracker.extra_calls,
+        usage=tracker.main_usage, extra_calls=tracker.extra_calls, agent=agent_info,
     )
 
 

@@ -128,11 +128,20 @@ def run_forever(app=None) -> None:
                 time.sleep(POLL_SECONDS)
 
 
+def _warm_up_llm() -> None:
+    # import trong hàm: chỉ tiến trình web mới cần khởi tạo LLM ngay lúc khởi động (worker tách riêng không gọi hàm này)
+    from core import llm_client
+
+    llm_client.warm_up()
+
+
 def start_embedded(app) -> None:
-    """Chạy worker ngay trong tiến trình web (gọi từ run.py sau khi app khởi tạo): nạp model ở nền rồi
-    xử lý tài liệu. Cả hai chạy trong "greenlet" của Socket.IO; phần tính toán nặng được đẩy sang luồng
-    thật (rag_engine.run_blocking) nên server vẫn phản hồi bình thường khi đang embed."""
+    """Chạy worker ngay trong tiến trình web (gọi từ run.py sau khi app khởi tạo): nạp model embedding và dựng sẵn client
+    LLM ở nền (để lượt trả lời đầu tiên của khách không phải trả chi phí khởi tạo), rồi xử lý tài liệu. Tất cả chạy
+    trong "greenlet" của Socket.IO; phần tính toán nặng được đẩy sang luồng thật (rag_engine.run_blocking) nên server
+    vẫn phản hồi bình thường khi đang embed."""
     socketio.start_background_task(rag_engine.warm_up)
+    socketio.start_background_task(_warm_up_llm)
     if app.config["EMBEDDED_WORKER"]:
         socketio.start_background_task(run_forever, app)
 

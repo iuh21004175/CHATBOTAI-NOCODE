@@ -2,12 +2,13 @@
 "đang xây dựng" cho các mục nav/thao tác chưa có màn hình thật.
 """
 from flask import Blueprint, Response, abort, current_app, flash, jsonify, redirect, render_template, request, session, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from app import permissions
 from app.csrf import ensure_csrf_token, verify_csrf_token
 from app.customers import service as customers_service
-from app.widget import appearance, icons
+from app.widget import appearance, icons, turns
 from app.widget import service as widget_service
 from extensions import limiter
 
@@ -17,6 +18,8 @@ from .assistant_templates import MAX_INSTRUCTIONS_CHARS
 bp = Blueprint("dashboard", __name__)
 bp.add_app_template_filter(service.filesize, "filesize")  # {{ 1536|filesize }} -> "1.5 KB"
 bp.add_app_template_filter(service.format_message, "format_message")  # in đậm/mã an toàn cho tin nhắn hiển thị
+bp.add_app_template_filter(service.message_segments, "message_segments")  # tin bot có danh sách sản phẩm -> nhiều tin riêng
+bp.add_app_template_filter(service.explain_decision, "explain_decision")  # decision_trace -> nhãn tiếng Việt cạnh tin bot
 
 
 @bp.errorhandler(RequestEntityTooLarge)
@@ -67,6 +70,7 @@ def index():
 
 @bp.route("/bots/new", methods=["GET", "POST"])
 @login_required
+@permissions.requires("manage_bots")
 def new_bot():
     team_id = session.get("team_id")
 
@@ -192,6 +196,7 @@ def bot_setup(bot_id):
         template_list=assistant_templates.TEMPLATES,
         template_data=assistant_templates.client_data(),
         instructions_max=MAX_INSTRUCTIONS_CHARS,
+        speed_text_max=service.MAX_SPEED_TEXT_CHARS,
         step=1,
         step_name="Thiết lập",
         csrf_token=ensure_csrf_token(),
@@ -215,11 +220,27 @@ def bot_preview_chat(bot_id):
     if len(message) > service.MAX_MESSAGE_CHARS:
         return jsonify(error=f"Câu hỏi tối đa {service.MAX_MESSAGE_CHARS} ký tự."), 400
 
+    if payload.get("async") is True:  # khung xem trước (embed.js): trả ngay mã lượt, tiến trình + câu trả lời lấy qua bot_preview_turn
+        turn_id = service.start_preview_turn(bot, message, payload.get("history"), current_user.id)
+        return jsonify(status="processing", turn_id=turn_id), 202
+
     try:
         result = service.preview_reply(bot, message, payload.get("history"))
     except Exception:
         current_app.logger.exception("preview-chat lỗi (bot_id=%s)", bot.id)
-        return jsonify(error="Không lấy được câu trả lời. Kiểm tra DEEPSEEK_API_KEY và các dịch vụ ChromaDB."), 502
+        return jsonify(error=service.PREVIEW_ERROR_TEXT), 502
+    return jsonify(result)
+
+
+@bp.route("/bots/<int:bot_id>/preview-chat/<string:turn_id>", methods=["GET"])
+@login_required
+@limiter.limit("300 per minute")
+def bot_preview_turn(bot_id, turn_id):
+    """Tiến trình + câu trả lời của lượt xem trước bất đồng bộ (sự kiện từ vị trí `after`); chỉ người đã tạo lượt đọc được."""
+    bot = _require_bot(bot_id)
+    result = turns.read(turn_id, service.preview_turn_owner(bot.id, current_user.id), request.args.get("after", 0, type=int))
+    if result is None:
+        return jsonify(error="Không tìm thấy lượt trả lời."), 404
     return jsonify(result)
 
 
@@ -262,19 +283,11 @@ def bot_cost_estimate(bot_id):
 
 # ---- Bước 3: Xuất bản ----
 
-@bp.route("/bots/<int:bot_id>/publish", methods=["GET", "POST"])
+@bp.route("/bots/<int:bot_id>/publish", methods=["GET"])
 @login_required
 def bot_publish(bot_id):
     bot = _require_bot(bot_id)
     settings = service.get_or_create_settings(bot)
-
-    if request.method == "POST":
-        if not verify_csrf_token(request.form.get("csrf_token", "")):
-            flash("Phiên làm việc đã hết hạn, vui lòng thử lại.", "error")
-        else:
-            service.update_widget_domain(settings, request.form.get("widget_domain", ""))
-            flash("Đã lưu cấu hình Web Widget.", "success")
-        return redirect(url_for("dashboard.bot_publish", bot_id=bot.id))
 
     embed_src = url_for("widget.embed_script", _external=True)
     return render_template(
@@ -302,8 +315,36 @@ def bot_publish(bot_id):
     )
 
 
+@bp.route("/bots/<int:bot_id>/publish/domains", methods=["POST"])
+@login_required
+@permissions.requires("publish")
+def bot_publish_domain_add(bot_id):
+    bot = _require_bot(bot_id)
+    if not verify_csrf_token(request.form.get("csrf_token", "")):
+        flash("Phiên làm việc đã hết hạn, vui lòng thử lại.", "error")
+    else:
+        error = service.add_widget_domain(bot, request.form.get("widget_domain", ""))
+        flash(error or "Đã thêm domain được phép nhúng widget.", "error" if error else "success")
+    return redirect(url_for("dashboard.bot_publish", bot_id=bot.id))
+
+
+@bp.route("/bots/<int:bot_id>/publish/domains/<int:domain_id>/delete", methods=["POST"])
+@login_required
+@permissions.requires("publish")
+def bot_publish_domain_delete(bot_id, domain_id):
+    bot = _require_bot(bot_id)
+    if not verify_csrf_token(request.form.get("csrf_token", "")):
+        flash("Phiên làm việc đã hết hạn, vui lòng thử lại.", "error")
+    elif service.remove_widget_domain(bot, domain_id):
+        flash("Đã xóa domain.", "success")
+    else:
+        flash("Không tìm thấy domain.", "error")
+    return redirect(url_for("dashboard.bot_publish", bot_id=bot.id))
+
+
 @bp.route("/bots/<int:bot_id>/publish/appearance", methods=["POST"])
 @login_required
+@permissions.requires("publish")
 def bot_publish_appearance(bot_id):
     bot = _require_bot(bot_id)
     if not verify_csrf_token(request.form.get("csrf_token", "")):
@@ -316,6 +357,7 @@ def bot_publish_appearance(bot_id):
 
 @bp.route("/bots/<int:bot_id>/publish/icon", methods=["POST"])
 @login_required
+@permissions.requires("publish")
 def bot_publish_icon_upload(bot_id):
     bot = _require_bot(bot_id)
     if not verify_csrf_token(request.form.get("csrf_token", "")):
@@ -326,7 +368,7 @@ def bot_publish_icon_upload(bot_id):
     return redirect(url_for("dashboard.bot_publish", bot_id=bot.id))
 
 
-# ---- Bước 4: Lịch sử chat ----
+# ---- Lịch sử chat (mục theo dõi riêng, ngoài luồng 3 bước tạo bot) ----
 
 @bp.route("/bots/<int:bot_id>/history")
 @login_required
@@ -334,7 +376,10 @@ def bot_history(bot_id):
     bot = _require_bot(bot_id)
     search = request.args.get("q", "")
     channel = request.args.get("channel", "")
-    conversations = service.list_conversations(bot_id, search=search, channel=channel)
+    decision = request.args.get("decision", "")
+    if decision not in service.DECISION_LABELS:
+        decision = ""
+    conversations = service.list_conversations(bot_id, search=search, channel=channel, decision=decision)
 
     conv_id = request.args.get("conversation_id", type=int)
     selected = None
@@ -346,13 +391,16 @@ def bot_history(bot_id):
     return render_template(
         "bots/history.html",
         bot=bot,
-        step=4,
+        step=0,  # không thuộc 3 bước Thiết lập → Cơ sở tri thức → Xuất bản: không bước nào active/done
         step_name="Lịch sử chat",
         conversations=conversations,
         selected=selected,
         messages=messages,
         search=search,
         channel=channel,
+        decision=decision,
+        decision_labels=service.DECISION_LABELS,
+        decision_stats=service.decision_stats(bot_id),
         display_name=service.conversation_display_name,
     )
 

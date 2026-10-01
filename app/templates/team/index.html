@@ -1,0 +1,145 @@
+{% extends "shell.html" %}
+{% block title %}Cài đặt nhóm{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/team.css') }}">
+{% endblock %}
+{% block main %}
+<div class="team-page">
+
+  <section class="team-section">
+    <div class="team-section-text">
+      <h2>Tên nhóm</h2>
+      <p>Tên nhóm hiển thị cho mọi thành viên. Vai trò của bạn: <b>{{ role_labels[role] }}</b>.</p>
+    </div>
+    <div class="team-card">
+      {% if can_rename %}
+        <form method="post" action="{{ url_for('team.rename') }}" class="team-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input class="field" type="text" name="name" value="{{ team.name }}" maxlength="255" required aria-label="Tên nhóm">
+          <button class="primary team-btn" type="submit">Lưu</button>
+        </form>
+      {% else %}
+        <div class="team-static">{{ team.name }}</div>
+        <div class="team-hint">Chỉ chủ nhóm mới đổi được tên nhóm.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="team-section">
+    <div class="team-section-text">
+      <h2>Thành viên</h2>
+      <p>{{ members|length }} người trong nhóm.</p>
+    </div>
+    <div class="team-card">
+      <table class="team-table">
+        <thead><tr><th>Thành viên</th><th>Vai trò</th><th>Tham gia</th><th></th></tr></thead>
+        <tbody>
+          {% for row in members %}
+            <tr>
+              <td>
+                <div class="team-name">{{ row.user.full_name or row.user.email }}{% if row.is_self %} <span class="team-you">(bạn)</span>{% endif %}</div>
+                <div class="team-email">{{ row.user.email }}</div>
+              </td>
+              <td>
+                {% if row.can_change_role %}
+                  <form method="post" action="{{ url_for('team.change_role', member_id=row.member.id) }}" class="team-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <select class="field team-select" name="role" aria-label="Vai trò" onchange="this.form.submit()">
+                      {% for r in row.assignable_roles %}
+                        <option value="{{ r }}" {{ 'selected' if r == row.member.role else '' }}>{{ role_labels[r] }}</option>
+                      {% endfor %}
+                    </select>
+                  </form>
+                {% else %}
+                  <span class="team-role team-role-{{ row.member.role|lower }}">{{ role_labels[row.member.role] }}</span>
+                {% endif %}
+              </td>
+              <td class="team-date">{{ row.member.joined_at.strftime("%d/%m/%Y") if row.member.joined_at else "—" }}</td>
+              <td class="team-actions">
+                {% if row.can_remove %}
+                  <form method="post" action="{{ url_for('team.remove_member', member_id=row.member.id) }}" data-confirm="Xóa thành viên này khỏi nhóm?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="team-link-danger" type="submit">Xóa</button>
+                  </form>
+                {% elif row.can_leave %}
+                  <form method="post" action="{{ url_for('team.leave') }}" data-confirm="Bạn chắc chắn muốn rời nhóm này?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="team-link-danger" type="submit">Rời nhóm</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if can_invite %}
+  <section class="team-section">
+    <div class="team-section-text">
+      <h2>Thêm thành viên</h2>
+      <p>Nhập email người bạn muốn mời. Họ nhận link qua email, đăng nhập bằng đúng email đó để tham gia (hiệu lực 7 ngày).</p>
+    </div>
+    <div class="team-card">
+      <form method="post" action="{{ url_for('team.invite') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="field-label" for="invite-email">Email</label>
+        <input class="field" type="email" id="invite-email" name="email" placeholder="nguoi.moi@congty.vn" maxlength="255" required>
+
+        <div class="field-label" style="margin-top:16px;">Vai trò</div>
+        <div class="team-roles">
+          {% for r in invitable_roles %}
+            <label class="team-role-option">
+              <input type="radio" name="role" value="{{ r }}" {{ 'checked' if loop.last else '' }}>
+              <span><b>{{ role_labels[r] }}</b><br><small>{{ role_descriptions[r] }}</small></span>
+            </label>
+          {% endfor %}
+        </div>
+        <button class="primary team-btn" type="submit" style="margin-top:16px;">Gửi lời mời</button>
+      </form>
+
+      {% if invitations %}
+        <h3 class="team-subtitle">Lời mời đang chờ</h3>
+        <table class="team-table">
+          <tbody>
+            {% for inv in invitations %}
+              <tr>
+                <td><div class="team-name">{{ inv.email }}</div><div class="team-email">{{ role_labels[inv.role] }} · hết hạn {{ inv.expires_at.strftime("%d/%m/%Y") }}</div></td>
+                <td class="team-actions">
+                  <form method="post" action="{{ url_for('team.cancel_invitation', invitation_id=inv.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="team-link-danger" type="submit">Hủy lời mời</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="team-section">
+    <div class="team-section-text">
+      <h2>Vai trò và quyền</h2>
+    </div>
+    <div class="team-card">
+      {% for r, label in role_labels.items() %}
+        <div class="team-role-desc"><b>{{ label }}</b> — {{ role_descriptions[r] }}</div>
+      {% endfor %}
+      <div class="team-hint" style="margin-top:8px;">Nhóm luôn cần ít nhất một chủ nhóm: hãy chỉ định chủ nhóm khác trước khi hạ vai trò hoặc rời nhóm.</div>
+    </div>
+  </section>
+
+  <div class="team-footer"><a href="{{ url_for('team.new_team') }}">+ Tạo nhóm mới</a></div>
+</div>
+{% endblock %}
+{% block shell_extra_js %}
+<script>
+document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+  form.addEventListener('submit', function (e) { if (!window.confirm(form.dataset.confirm)) e.preventDefault(); });
+});
+</script>
+{% endblock %}

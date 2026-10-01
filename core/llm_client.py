@@ -41,3 +41,10 @@ def get_llm(temperature: float = 0.7, max_tokens: int | None = None) -> ChatDeep
         extra_body=_NO_THINKING,
         http_client=_http_client(),
     )
+
+
+def warm_up() -> None:
+    """Dựng sẵn phần khởi tạo LLM ngay lúc khởi động app: import module này (langchain_deepseek/openai ~2 giây) và lần dựng
+    client đầu tiên (SSL context + khởi tạo lớp, ~0,7 giây). Đã đo: nếu để trễ, lượt trả lời ĐẦU TIÊN của tiến trình gánh
+    thêm ~3 giây; các bộ tham số (temperature, max_tokens) khác của bot khác chỉ tốn ~1ms sau đó. Không gọi mạng."""
+    get_llm()

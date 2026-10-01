@@ -142,33 +142,33 @@ class SummaryTrigger(DbCase):
         return ConversationState.query.filter_by(conversation_id=conversation.id).one()
 
     def test_flag_set_when_unsummarised_tokens_exceed_trigger(self):
-        self.set_settings(summary_trigger_tokens=500)
+        self.set_settings(config_tier="advanced", summary_trigger_tokens=500)
         conversation = self.conversation()
         self.fill(conversation, 6, 60)
         self.assertTrue(self.reply(conversation).summary_pending)
 
     def test_flag_not_set_below_trigger(self):
-        self.set_settings(summary_trigger_tokens=20_000)
+        self.set_settings(config_tier="advanced", summary_trigger_tokens=20_000)
         conversation = self.conversation()
         self.fill(conversation, 4, 10)
         self.assertFalse(self.reply(conversation).summary_pending)
 
     def test_summary_stays_enabled_even_if_db_stores_it_disabled(self):
         # summary_enabled giờ cố định bật (FIXED_TOGGLES) — giá trị lưu trong DB không còn ảnh hưởng.
-        self.set_settings(summary_enabled=False, summary_trigger_tokens=500)
+        self.set_settings(config_tier="advanced", summary_enabled=False, summary_trigger_tokens=500)
         conversation = self.conversation()
         self.fill(conversation, 6, 60)
         self.assertTrue(self.reply(conversation).summary_pending)
 
     def test_the_request_does_not_call_the_llm_for_summary(self):
-        self.set_settings(summary_trigger_tokens=500)
+        self.set_settings(config_tier="advanced", summary_trigger_tokens=500)
         conversation = self.conversation()
         self.fill(conversation, 6, 60)
         self.reply(conversation)
         self.assertEqual(len(self.llm.calls), 1, "tóm tắt chạy ở nền, không nằm trong luồng trả lời realtime")
 
     def test_only_unsummarised_messages_are_counted(self):
-        self.set_settings(summary_trigger_tokens=500)
+        self.set_settings(config_tier="advanced", summary_trigger_tokens=500)
         conversation = self.conversation()
         self.fill(conversation, 6, 60)
         last = Message.query.filter_by(conversation_id=conversation.id).order_by(Message.id.desc()).first()

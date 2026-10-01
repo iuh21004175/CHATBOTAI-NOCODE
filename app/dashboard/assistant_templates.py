@@ -33,7 +33,6 @@ TEMPLATES = [
         "icon": _ICONS["bot"],
         "greeting": None,  # None = không điền gì: giữ nguyên nội dung người dùng đang nhập
         "instructions": None,
-        "temperature": None,
     },
     {
         "key": "sales",
@@ -41,7 +40,6 @@ TEMPLATES = [
         "description": "Trợ lý AI bán hàng bán lẻ toàn diện.",
         "icon": _ICONS["trend"],
         "greeting": "Xin chào! Mình là trợ lý bán hàng. Bạn đang tìm sản phẩm nào để mình tư vấn nhé?",
-        "temperature": 0.7,
         "instructions": """## Vai trò
 Bạn là trợ lý bán hàng bán lẻ của cửa hàng: thân thiện, nhiệt tình và trung thực.
 
@@ -64,7 +62,6 @@ Bạn là trợ lý bán hàng bán lẻ của cửa hàng: thân thiện, nhi�
         "description": "Trợ lý AI dịch vụ khách hàng 24/7 liền mạch.",
         "icon": _ICONS["headset"],
         "greeting": "Xin chào! Mình là trợ lý hỗ trợ khách hàng. Bạn cần mình giúp vấn đề gì ạ?",
-        "temperature": 0.4,
         "instructions": """## Vai trò
 Bạn là nhân viên chăm sóc khách hàng trực 24/7: lịch sự, kiên nhẫn và đồng cảm.
 
@@ -86,7 +83,6 @@ Bạn là nhân viên chăm sóc khách hàng trực 24/7: lịch sự, kiên nh
         "description": "Hướng dẫn học sinh tiềm năng về các chương trình, yêu cầu đầu vào và quy trình tuyển sinh.",
         "icon": _ICONS["cap"],
         "greeting": "Xin chào! Mình là trợ lý tư vấn tuyển sinh. Bạn muốn tìm hiểu ngành học hay quy trình xét tuyển nào ạ?",
-        "temperature": 0.4,
         "instructions": """## Vai trò
 Bạn là tư vấn viên tuyển sinh của nhà trường, hỗ trợ học sinh và phụ huynh.
 
@@ -109,7 +105,6 @@ Bạn là tư vấn viên tuyển sinh của nhà trường, hỗ trợ học si
         "description": "Trợ lý AI hỗ trợ sinh viên.",
         "icon": _ICONS["book"],
         "greeting": "Chào bạn! Mình là trợ lý công tác sinh viên. Bạn cần hỗ trợ về học tập, thủ tục hay hoạt động nào?",
-        "temperature": 0.4,
         "instructions": """## Vai trò
 Bạn là trợ lý hỗ trợ sinh viên của nhà trường về công tác sinh viên.
 
@@ -131,7 +126,6 @@ Bạn là trợ lý hỗ trợ sinh viên của nhà trường về công tác s
         "description": "Trợ lý AI tư vấn B2B và thu thập khách hàng tiềm năng.",
         "icon": _ICONS["briefcase"],
         "greeting": "Xin chào! Tôi là trợ lý tư vấn giải pháp cho doanh nghiệp. Quý khách đang quan tâm đến giải pháp nào ạ?",
-        "temperature": 0.6,
         "instructions": """## Vai trò
 Bạn là trợ lý tư vấn giải pháp cho khách hàng doanh nghiệp (B2B).
 
@@ -153,7 +147,6 @@ Bạn là trợ lý tư vấn giải pháp cho khách hàng doanh nghiệp (B2B)
         "description": "Sàng lọc ứng viên, trả lời câu hỏi về công việc và hỗ trợ quy trình tuyển dụng.",
         "icon": _ICONS["usercheck"],
         "greeting": "Xin chào! Mình là trợ lý tuyển dụng. Bạn quan tâm vị trí nào hoặc muốn biết về quy trình ứng tuyển?",
-        "temperature": 0.4,
         "instructions": """## Vai trò
 Bạn là trợ lý tuyển dụng của công ty, hỗ trợ ứng viên tìm hiểu cơ hội nghề nghiệp.
 
@@ -175,7 +168,6 @@ Bạn là trợ lý tuyển dụng của công ty, hỗ trợ ứng viên tìm h
         "description": "Cung cấp thông tin và giải thích pháp lý tổng quát, như một nguồn tham khảo ban đầu.",
         "icon": _ICONS["scale"],
         "greeting": "Xin chào! Tôi là trợ lý thông tin pháp lý. Bạn muốn tìm hiểu quy định nào? Lưu ý thông tin chỉ mang tính tham khảo.",
-        "temperature": 0.2,
         "instructions": """## Vai trò
 Bạn là trợ lý cung cấp thông tin pháp lý tổng quát dựa trên tài liệu được cung cấp.
 
@@ -197,7 +189,6 @@ Bạn là trợ lý cung cấp thông tin pháp lý tổng quát dựa trên tà
         "description": "Giúp công dân hiểu và hoàn thành các thủ tục và dịch vụ công.",
         "icon": _ICONS["landmark"],
         "greeting": "Xin chào! Tôi là trợ lý hướng dẫn thủ tục và dịch vụ công. Bạn cần làm thủ tục gì ạ?",
-        "temperature": 0.2,
         "instructions": """## Vai trò
 Bạn là trợ lý hướng dẫn công dân về thủ tục hành chính và dịch vụ công.
 
@@ -219,7 +210,6 @@ Bạn là trợ lý hướng dẫn công dân về thủ tục hành chính và 
         "description": "Đóng vai trò như lễ tân ảo cho đặt phòng, yêu cầu phòng và hỗ trợ khách lưu trú.",
         "icon": _ICONS["bed"],
         "greeting": "Xin chào quý khách! Tôi là lễ tân ảo của khách sạn. Tôi có thể giúp gì cho kỳ nghỉ của quý khách?",
-        "temperature": 0.5,
         "instructions": """## Vai trò
 Bạn là lễ tân ảo của khách sạn, hỗ trợ khách trước và trong thời gian lưu trú.
 
@@ -241,7 +231,6 @@ Bạn là lễ tân ảo của khách sạn, hỗ trợ khách trước và tron
         "description": "Hỗ trợ khách hàng với thông tin thực đơn, gợi ý món ăn và giờ mở cửa.",
         "icon": _ICONS["utensils"],
         "greeting": "Xin chào! Mình là trợ lý của nhà hàng. Bạn muốn xem thực đơn hay cần gợi ý món ăn nào ạ?",
-        "temperature": 0.6,
         "instructions": """## Vai trò
 Bạn là trợ lý của nhà hàng, giúp khách chọn món và nắm thông tin phục vụ.
 
@@ -264,6 +253,6 @@ Bạn là trợ lý của nhà hàng, giúp khách chọn món và nắm thông 
 def client_data() -> dict:
     """Dữ liệu đưa xuống trình duyệt để điền form khi chọn mẫu (không gồm icon)."""
     return {
-        t["key"]: {k: t[k] for k in ("name", "greeting", "instructions", "temperature")}
+        t["key"]: {k: t[k] for k in ("name", "greeting", "instructions")}
         for t in TEMPLATES
     }

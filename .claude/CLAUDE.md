@@ -550,51 +550,85 @@ Mục tiêu là đảm bảo giải pháp xử lý đúng **nhóm trường hợ
 
 ---
 
-# 16. REGRESSION TEST BẮT BUỘC
+# 16. QUY TRÌNH KIỂM THỬ CHỨC NĂNG BẮT BUỘC (KHÔNG TỰ CHẠY TEST CODE ĐỂ TỰ KẾT LUẬN)
 
-Sau khi sửa phải kiểm tra tối thiểu:
+Claude Code KHÔNG được tự viết test code (pytest/unittest/script mới) rồi tự chạy để kết luận rằng một bug đã được sửa đúng hoặc một tính năng hoạt động đúng. Bộ test tự động (unit test) hiện có trong project chỉ dùng để phát hiện lỗi cú pháp/crash/regression ở mức code (xem mục 27), KHÔNG được dùng làm bằng chứng "đã sửa đúng hành vi nghiệp vụ" hoặc "tính năng hoạt động đúng như mong đợi".
 
-## Test 1 — Original bug
+Sau khi implement xong một fix/tính năng, Claude Code PHẢI viết một **TEST PROCEDURE PROMPT** — quy trình kiểm thử chức năng từng bước — để người dùng (Claude Cowork) thực hiện kiểm thử thực tế (qua giao diện thật, API thật, dữ liệu thật) và quan sát/phân tích kết quả thực tế.
 
-Case gây lỗi ban đầu.
+TEST PROCEDURE PROMPT phải bao gồm tối thiểu 5 nhóm case sau, diễn đạt bằng THAO TÁC THỰC TẾ chứ không phải đoạn code:
 
-```text
-PASS / FAIL
-```
+## Case 1 — Original bug
 
-## Test 2 — Similar cases
+Mô tả chính xác thao tác/tình huống đã gây ra lỗi ban đầu, và kết quả mong đợi sau khi sửa.
 
-Các trường hợp có cùng root cause.
+## Case 2 — Similar cases
 
-```text
-PASS / FAIL
-```
+Các thao tác/tình huống khác có cùng root cause, và kết quả mong đợi.
 
-## Test 3 — Normal case
+## Case 3 — Normal case
 
-Input/flow bình thường trước đây.
+Thao tác/luồng sử dụng bình thường (không liên quan trực tiếp đến bug) để đảm bảo không bị ảnh hưởng, và kết quả mong đợi.
 
-```text
-PASS / FAIL
-```
+## Case 4 — Edge cases
 
-## Test 4 — Edge cases
+Các trường hợp biên liên quan, và kết quả mong đợi.
 
-Các trường hợp biên liên quan.
+## Case 5 — Regression
+
+Các chức năng khác có khả năng bị ảnh hưởng bởi thay đổi, và kết quả mong đợi.
+
+### Format bắt buộc của TEST PROCEDURE PROMPT
 
 ```text
-PASS / FAIL
+TÊN TÍNH NĂNG / BUG:
+[Mô tả ngắn gọn]
+
+MỤC TIÊU KIỂM THỬ:
+[Kiểm thử cái gì, tại sao]
+
+ĐIỀU KIỆN TIÊN QUYẾT:
+[Setup cần thiết: tài khoản, bot_id/team_id, dữ liệu mẫu, cấu hình, biến môi trường liên quan, trạng thái hệ thống cần có trước khi test...]
+
+CASE 1 — ORIGINAL BUG
+Bước thực hiện:
+1. ...
+2. ...
+Kết quả mong đợi:
+...
+
+CASE 2 — SIMILAR CASES
+Bước thực hiện:
+...
+Kết quả mong đợi:
+...
+
+CASE 3 — NORMAL CASE
+Bước thực hiện:
+...
+Kết quả mong đợi:
+...
+
+CASE 4 — EDGE CASES
+Bước thực hiện:
+...
+Kết quả mong đợi:
+...
+
+CASE 5 — REGRESSION
+Bước thực hiện:
+...
+Kết quả mong đợi:
+...
 ```
 
-## Test 5 — Regression
+Mỗi bước thực hiện phải đủ cụ thể để người thực hiện (không đọc code) vẫn làm theo được chính xác — ví dụ: "Gửi request `POST /api/...` với body `{...}`", "Mở giao diện chatbot, nhập câu hỏi: '...'", "Kiểm tra bảng `messages` trong DB có bản ghi mới với `role='assistant'` và nội dung không rỗng", "Kiểm tra log worker có dòng `...`". Kết quả mong đợi phải là thứ quan sát được cụ thể (nội dung trả về, mã trạng thái HTTP, giá trị trong DB, số lần gọi LLM...), không phải mô tả chung chung.
 
-Các chức năng có thể bị ảnh hưởng bởi thay đổi.
+Claude Code KHÔNG được tự gán `PASS`/`FAIL` hay `STATUS: FIXED` dựa trên việc tự chạy test code hoặc tự suy luận. Sau khi đưa ra TEST PROCEDURE PROMPT, Claude Code phải báo `STATUS: AWAITING FUNCTIONAL VERIFICATION` (xem mục 34) và dừng lại, chờ kết quả kiểm thử thực tế được gửi lại.
 
-```text
-PASS / FAIL
-```
+Nếu kiểm thử thực tế phát hiện lỗi, người dùng/Claude Cowork sẽ gửi lại mô tả lỗi thực tế đã quan sát được (không phải lỗi suy đoán) để Claude Code tiếp tục điều tra và sửa theo đúng quy trình root-cause ở các mục trên.
 
-Không được báo `FIXED` chỉ dựa trên Test 1.
+Chỉ khi nhận được xác nhận kết quả kiểm thử thực tế là PASS cho đủ 5 case, Claude Code mới được cập nhật `STATUS: FIXED` trong báo cáo.
 
 ---
 
@@ -881,16 +915,20 @@ IF NEW DEPENDENCY → ASK USER
  ↓
 IMPLEMENT
  ↓
-TEST ORIGINAL CASE
+WRITE TEST PROCEDURE PROMPT (mục 16 — KHÔNG tự viết/chạy test code thay thế bước này)
  ↓
-TEST SIMILAR CASES
+REPORT STATUS: AWAITING FUNCTIONAL VERIFICATION
  ↓
-REGRESSION TEST
+CHỜ KẾT QUẢ KIỂM THỬ THỰC TẾ (từ user / Claude Cowork)
  ↓
-REPORT RESULT
+NẾU PHÁT HIỆN LỖI THỰC TẾ → QUAY LẠI INVESTIGATE
+ ↓
+NẾU PASS ĐỦ 5 CASE → REPORT RESULT (STATUS: FIXED)
 ```
 
 Không được bỏ qua bước Root Cause chỉ vì lỗi có vẻ đơn giản.
+
+Không được bỏ qua bước WRITE TEST PROCEDURE PROMPT bằng cách tự viết và tự chạy test code để thay thế bước kiểm thử chức năng thực tế.
 
 ---
 
@@ -953,28 +991,29 @@ Kiểm tra dependency hiện có trước khi đề xuất dependency mới.
 
 Chỉ sau khi đã hiểu vấn đề.
 
+### Bước 8 — Viết TEST PROCEDURE PROMPT
+
+Không tự viết/chạy test code để tự xác nhận kết quả. Viết quy trình kiểm thử chức năng theo đúng format ở mục 16 (mục tiêu, điều kiện tiên quyết, các bước thao tác thực tế, kết quả mong đợi cho từng case) và bàn giao để kiểm thử thực tế trước khi báo `FIXED`.
+
 ---
 
 # 27. QUY TẮC TEST
 
-Nếu project đã có test framework, phải sử dụng test framework hiện tại.
+Có hai loại kiểm thử trong project, KHÔNG được nhầm lẫn hoặc thay thế cho nhau.
 
-Ví dụ:
+## 27.1 Unit test / automated test hiện có trong repo
 
-```text
-pytest
-unittest
-```
+Nếu project đã có test framework (`pytest`, `unittest`), Claude Code có thể tiếp tục chạy bộ test hiện có để phát hiện lỗi cú pháp, crash, import lỗi, hoặc regression thuần code khi cần thiết. Không được tự ý thêm test framework mới. Không được tự ý xóa hoặc sửa test hiện có chỉ để làm test PASS giả tạo.
 
-Không được tự ý thêm test framework mới.
+Kết quả PASS của bộ test tự động này CHỈ là tín hiệu "code không crash ở phạm vi đã cover". Nó KHÔNG được dùng làm bằng chứng để báo `STATUS: FIXED` cho một bug/tính năng liên quan đến hành vi nghiệp vụ hoặc trải nghiệm người dùng thực tế.
 
-Nếu project đã dùng `pytest`, ưu tiên `pytest`.
+## 27.2 Kiểm thử chức năng (functional verification) — bắt buộc, thay cho việc Claude Code tự test bằng code
 
-Nếu project chưa có test framework:
+Claude Code KHÔNG được tự viết test code mới (pytest/unittest/script) rồi tự chạy để chứng minh một bug đã sửa đúng hoặc một tính năng hoạt động đúng như mong đợi.
 
-- Không tự ý cài framework chỉ để test một bug nhỏ.
-- Có thể dùng công cụ hiện có/Python standard library nếu phù hợp.
-- Nếu cần thêm framework test mới, phải báo user trước.
+Thay vào đó, Claude Code PHẢI viết TEST PROCEDURE PROMPT theo đúng format ở mục 16, để người dùng/Claude Cowork thực hiện kiểm thử thực tế (request/response thật, giao diện thật, dữ liệu thật trong DB, log thật) và phân tích kết quả thực tế.
+
+Claude Code không được tự kết luận `PASS`/`FAIL` hay `FIXED` thay cho bước kiểm thử chức năng thực tế này. Nếu chưa nhận được kết quả kiểm thử thực tế, trạng thái phải là `AWAITING FUNCTIONAL VERIFICATION`, không phải `FIXED`.
 
 ---
 
@@ -1188,16 +1227,22 @@ DEPENDENCIES:
 hoặc
 - [Tên dependency] — đã được user xác nhận
 
-TESTED:
-- Original case: PASS/FAIL
-- Similar cases: PASS/FAIL
-- Normal case: PASS/FAIL
-- Edge cases: PASS/FAIL
-- Regression: PASS/FAIL
+TEST PROCEDURE PROMPT:
+[Đính kèm hoặc trỏ tới TEST PROCEDURE PROMPT đầy đủ theo format mục 16 — BẮT BUỘC phải có trước khi báo FIXED]
+
+FUNCTIONAL VERIFICATION RESULT:
+- Original bug: PASS / FAIL / CHƯA KIỂM THỬ
+- Similar cases: PASS / FAIL / CHƯA KIỂM THỬ
+- Normal case: PASS / FAIL / CHƯA KIỂM THỬ
+- Edge cases: PASS / FAIL / CHƯA KIỂM THỬ
+- Regression: PASS / FAIL / CHƯA KIỂM THỬ
+(Kết quả này do người dùng/Claude Cowork thực hiện kiểm thử thực tế và cung cấp lại. Claude Code KHÔNG được tự điền PASS khi chưa nhận được kết quả kiểm thử thực tế.)
 
 STATUS:
-FIXED / NOT VERIFIED / BLOCKED
+FIXED / AWAITING FUNCTIONAL VERIFICATION / NOT VERIFIED / BLOCKED
 ```
+
+`STATUS: FIXED` chỉ được ghi khi toàn bộ `FUNCTIONAL VERIFICATION RESULT` đã là `PASS` và kết quả đó do người dùng/Claude Cowork cung cấp sau khi kiểm thử thực tế — không phải do Claude Code tự suy luận hoặc tự chạy code kiểm tra.
 
 ---
 
@@ -1210,10 +1255,11 @@ Một bug chỉ được coi là **FIXED** khi đáp ứng:
 [✓] Đã sửa root cause
 [✓] Không chỉ dùng workaround
 [✓] Không tạo dependency mới trái phép
-[✓] Original case đã PASS
-[✓] Similar cases đã được kiểm tra
-[✓] Normal cases đã PASS
-[✓] Regression đã được kiểm tra
+[✓] Đã viết TEST PROCEDURE PROMPT theo mục 16
+[✓] Original case đã được xác minh PASS qua kiểm thử chức năng thực tế (không phải tự test bằng code)
+[✓] Similar cases đã được xác minh PASS qua kiểm thử chức năng thực tế
+[✓] Normal cases đã được xác minh PASS qua kiểm thử chức năng thực tế
+[✓] Regression đã được xác minh PASS qua kiểm thử chức năng thực tế
 [✓] Không phá vỡ architecture hiện tại
 [✓] Không sửa trực tiếp third-party package
 [✓] Không che giấu exception/error
@@ -1221,13 +1267,19 @@ Một bug chỉ được coi là **FIXED** khi đáp ứng:
 [✓] Không có thay đổi không liên quan
 ```
 
-Nếu thiếu một điều kiện quan trọng:
+Nếu chưa nhận được kết quả kiểm thử chức năng thực tế:
+
+```text
+STATUS: AWAITING FUNCTIONAL VERIFICATION
+```
+
+Nếu đã kiểm thử thực tế nhưng có case FAIL, hoặc thiếu một điều kiện quan trọng khác:
 
 ```text
 STATUS: NOT VERIFIED
 ```
 
-Không được báo `FIXED` chỉ vì ứng dụng hiện tại không còn báo lỗi.
+Không được báo `FIXED` chỉ vì bộ test code tự viết không còn báo lỗi, hoặc vì Claude Code tự thử qua code và thấy ứng dụng "có vẻ" không còn báo lỗi.
 
 ---
 
@@ -1250,5 +1302,7 @@ Claude Code phải luôn tuân thủ:
 > **Đừng che giấu lỗi bằng exception handling, hard-code hoặc configuration bypass.**
 
 > **Một bug chỉ được coi là fixed sau khi đã kiểm tra original case, similar cases và regression.**
+
+> **Đừng tự viết và tự chạy test code (pytest/unittest/script) để tự kết luận một bug đã sửa đúng hoặc một tính năng hoạt động đúng — phải viết TEST PROCEDURE PROMPT (mục 16) và chờ kết quả kiểm thử chức năng thực tế từ người dùng/Claude Cowork trước khi báo FIXED.**
 
 > **Nếu không đủ bằng chứng để sửa an toàn, phải điều tra thêm hoặc báo BLOCKED — không được đoán.**

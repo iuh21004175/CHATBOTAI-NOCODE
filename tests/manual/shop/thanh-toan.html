@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Thanh toán — Cửa hàng thử</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- TRANG THỬ cho kiểm thử thủ công Phase M. KHÔNG có thanh toán thật: nút "Đặt hàng" chỉ hiện dòng chữ #order-result. Không phải mã của sản phẩm. -->
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  nav { display: flex; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid #ddd; margin-bottom: 16px; }
+  form { border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+  input { padding: 6px 8px; margin: 4px 0; width: 260px; }
+  .btn { padding: 8px 16px; border: 0; border-radius: 6px; background: #b91c1c; color: #fff; cursor: pointer; }
+  #order-result { margin-top: 14px; font-weight: 700; color: #15803d; }
+</style>
+</head>
+<body>
+<nav>
+  <a id="home-link" href="san-pham.html">Sản phẩm</a>
+  <a id="cart-link" class="nav cart" href="gio-hang.html">Giỏ hàng</a>
+</nav>
+<h1>Thanh toán</h1>
+<form id="checkout-form" action="/checkout/pay" method="post">
+  <input id="co-name" name="fullname" placeholder="Họ tên"><br>
+  <input id="co-address" name="address" placeholder="Địa chỉ giao hàng"><br>
+  <input id="co-card" name="card_number" placeholder="Số thẻ"><br>
+  <input id="co-cvv" name="cvv" placeholder="CVV"><br>
+  <button type="submit" id="place-order" class="btn">Đặt hàng và thanh toán</button>
+</form>
+<div id="order-result" role="status"></div>
+<script>
+  document.getElementById('checkout-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    document.getElementById('order-result').textContent = 'ĐƠN HÀNG ĐÃ ĐƯỢC ĐẶT (DEMO) — ' + Date.now();
+  });
+  (function () {
+    var bot = sessionStorage.getItem('shop-demo-bot'), server = sessionStorage.getItem('shop-demo-server') || 'http://localhost:5000';
+    if (!bot) return;
+    var s = document.createElement('script');
+    s.src = server + '/widget/embed.js';
+    s.setAttribute('data-bot-id', bot);
+    document.body.appendChild(s);
+  })();
+</script>
+</body>
+</html>

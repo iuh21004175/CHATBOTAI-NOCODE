@@ -75,6 +75,9 @@ def _extract_json(text: str) -> str:
     return fenced.group(1) if fenced else text
 
 
+extract_json = _extract_json  # dùng chung cho các lệnh gọi JSON mode khác (core/website_actions/analysis.py)
+
+
 def _is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value
 

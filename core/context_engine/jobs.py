@@ -7,6 +7,7 @@ Redis), việc idempotent nên worker chết giữa chừng thì lần sau làm 
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime
 
 from core import rag_engine
@@ -21,6 +22,25 @@ logger = logging.getLogger("context_engine.jobs")
 EMBED_BATCH = 16
 MAX_SUMMARY_INPUT_TOKENS = 12000  # 1 lượt tóm tắt xử lý tối đa chừng này token tin mới; phần còn lại để lượt sau
 SUMMARY_MARGIN_TOKENS = 100  # LLM hay viết lố nhẹ so với "tối đa khoảng N token"
+SUMMARY_LOCK_TTL_SECONDS = 120  # dài hơn 1 lệnh gọi tóm tắt; chết giữa chừng thì tự nhả
+
+_RELEASE_LOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
+
+
+def summary_lock_key(conversation_id: int) -> str:
+    return f"context-jobs:summary-lock:{conversation_id}"
+
+
+def acquire_summary_lock(redis, conversation_id: int) -> str | None:
+    """Khóa MỖI HỘI THOẠI khi đang tóm tắt: việc nền và công cụ tóm tắt của agent (agent/…/internal) cùng đọc-tính-ghi 1 bản tóm tắt,
+    không khóa thì 2 bên cùng gọi LLM (tốn gấp đôi) và bản ghi sau đè bản trước. Trả token của chủ khóa, None nếu đang bị giữ."""
+    token = uuid.uuid4().hex
+    return token if redis.set(summary_lock_key(conversation_id), token, nx=True, ex=SUMMARY_LOCK_TTL_SECONDS) else None
+
+
+def release_summary_lock(redis, conversation_id: int, token: str) -> None:
+    """Chỉ chủ khóa mới nhả được (khóa đã hết hạn và người khác giữ thì không xóa nhầm)."""
+    redis.eval(_RELEASE_LOCK, 1, summary_lock_key(conversation_id), token)
 
 
 def summary_llm_call(max_tokens: int):

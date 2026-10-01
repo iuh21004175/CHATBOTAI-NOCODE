@@ -3,14 +3,17 @@ CSRF token thủ công cho form đăng nhập (app chưa dùng Flask-WTF).
 """
 import hashlib
 import re
+import secrets
+from urllib.parse import urlparse
 
-from flask import current_app, session
+from flask import current_app, g, session
 from flask_login import current_user, login_user, logout_user
 from flask_mail import Message
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.csrf import ensure_csrf_token, verify_csrf_token  # noqa: F401 — re-export cho routes.py
+from app.credits import service as credits_service
 from app.models import Team, TeamMember, User
 from extensions import db, mail, redis_client
 
@@ -18,6 +21,21 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 MAGIC_LINK_SALT = "magic-link"
 MAGIC_LINK_MAX_AGE = 15 * 60  # 15 phút
+
+
+def safe_next_url(raw: str | None, default: str) -> str:
+    """Đích quay lại sau đăng nhập ("?next=..."): CHỈ nhận đường dẫn NỘI BỘ tương đối (bắt đầu bằng đúng 1 dấu "/", không phải "//" hay "/\\" —
+    trình duyệt hiểu 2 dạng sau là URL tuyệt đối trỏ sang host khác). Không có scheme/host nào được coi là hợp lệ, kể cả khi trùng host hiện tại
+    (không tin Host header). Giá trị lạ/rỗng -> `default`. Chặn open redirect: raw đến từ query string của người dùng chưa đăng nhập, không được tin.
+    Không giữ được URL FRAGMENT (#...): trình duyệt không bao giờ gửi fragment lên server, nơi cần "mở đúng mục" sau đăng nhập (vd trang Nạp Credit)
+    phải dùng query string (?open=...), không dùng "#..." — xem app/templates/profile/index.html."""
+    raw = (raw or "").strip()
+    if not raw or not raw.startswith("/") or raw.startswith("//") or raw.startswith("/\\"):
+        return default
+    parsed = urlparse(raw)
+    if parsed.scheme or parsed.netloc:
+        return default
+    return raw
 
 
 def authenticate(email: str, password: str) -> User | None:
@@ -59,6 +77,7 @@ def register(full_name: str, email: str, password: str, team_name: str = "") -> 
     team = Team(name=team_name, plan="free")
     db.session.add(team)
     db.session.flush()
+    credits_service.ensure_account(team.id)  # Credit dùng thử: đúng 1 lần cho mỗi team mới (cùng transaction với việc tạo team)
 
     user = User(email=email, password_hash=generate_password_hash(password), full_name=full_name)
     db.session.add(user)
@@ -84,6 +103,7 @@ def find_or_create_user(email: str, full_name: str) -> User:
     team = Team(name=f"Team của {full_name}", plan="free")
     db.session.add(team)
     db.session.flush()
+    credits_service.ensure_account(team.id)  # Credit dùng thử: đúng 1 lần cho mỗi team mới (cùng transaction với việc tạo team)
 
     user = User(email=email, password_hash=None, full_name=full_name)
     db.session.add(user)
@@ -141,19 +161,39 @@ def send_magic_link_email(email: str, magic_url: str) -> None:
 def login(user: User, remember: bool = False) -> None:
     login_user(user, remember=remember)
     session.pop("csrf_token", None)  # xoay token sau khi đăng nhập để chống replay
+    session["socket_key"] = secrets.token_urlsafe(16)  # định danh phiên trình duyệt cho Socket.IO (đóng kết nối khi đăng xuất)
 
-    membership = TeamMember.query.filter_by(user_id=user.id).first()
+    membership = TeamMember.query.filter_by(user_id=user.id).order_by(TeamMember.id.asc()).first()
     session["team_id"] = membership.team_id if membership else None
+    _accept_pending_invite(user)
+
+
+def _accept_pending_invite(user: User) -> None:
+    """Người vừa mở link mời khi chưa đăng nhập: sau khi đăng nhập (mọi cách) tự nhận lời mời và chuyển sang nhóm được mời."""
+    from flask import flash
+
+    from app.team import service as team_service
+
+    token = session.pop("pending_invite", None)
+    if not token:
+        return
+    team, error = team_service.accept_invitation(user, token)
+    if error:
+        flash(error, "error")
+        return
+    session["team_id"] = team.id
+    flash(f'Bạn đã tham gia nhóm "{team.name}".', "success")
 
 
 def logout() -> None:
     logout_user()
     session.pop("team_id", None)
     session.pop("csrf_token", None)
+    session.pop("socket_key", None)
 
 
 def serialize_current_user() -> dict:
-    membership = TeamMember.query.filter_by(user_id=current_user.id).first()
+    membership = getattr(g, "membership", None)  # tư cách thành viên trong team ĐANG làm việc (permissions.sync_session_team)
     return {
         "id": current_user.id,
         "email": current_user.email,

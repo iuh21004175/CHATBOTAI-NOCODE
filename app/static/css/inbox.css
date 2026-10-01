@@ -213,6 +213,15 @@
 .ib-msg.customer .ib-tbl th { background: rgba(255, 255, 255, .18); }
 .ib-msg.staff .ib-tbl th { background: #DBEAFE; }
 
+/* Danh sách sản phẩm/dịch vụ trong tin nhắn: mỗi mục 1 box */
+.ib-items { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; white-space: normal; }
+.ib-items:first-child { margin-top: 0; }
+.ib-items:last-child { margin-bottom: 0; }
+.ib-item { border: 1px solid var(--border); border-radius: 10px; padding: 7px 10px; background: #FAFAF9; }
+.ib-item-name { font-weight: 700; }
+.ib-item-desc { margin-top: 2px; line-height: 1.45; }
+.ib-msg.customer .ib-item { border-color: rgba(255, 255, 255, .45); background: rgba(255, 255, 255, .14); }
+
 .ib-msg.customer .ib-bubble {
   background: var(--black);
   border-color: var(--black);
@@ -241,47 +250,9 @@
 .ib-time { display: block; font-size: 10.5px; color: var(--text-faint); margin-top: 4px; }
 .ib-msg.customer .ib-time { color: #BFDBFE; }
 
-.ib-compose { padding: 14px 20px; border-top: 1px solid var(--border); background: #fff; }
-
-.ib-compose-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px 14px;
-}
-
-.ib-compose-box:focus-within { border-color: var(--accent); }
-
-.ib-compose-box input {
-  flex-grow: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text);
-}
-
-.ib-send {
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 9px;
-  background: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.ib-send:disabled { opacity: .5; cursor: default; }
-.ib-send svg { width: 14px; height: 14px; }
+.ib-error-bar:has(.ib-error:not([hidden])) { padding: 10px 20px; border-top: 1px solid var(--border); background: #fff; }
 
 .ib-error {
-  margin-bottom: 10px;
   padding: 8px 12px;
   border-radius: 9px;
   background: var(--error-bg);

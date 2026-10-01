@@ -1,0 +1,180 @@
+{% extends "shell.html" %}
+{% set active_nav = "modules" %}
+{% set page_title = "Module" %}
+{% block title %}{{ module.name }} — Module — {{ bot.name }}{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bot_workspace.css') }}">  {# .card/.field/.btnp/.btns/.lbl/.hint dùng chung; phần .ws-* không dùng ở đây #}
+<style>
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F3F4F6;color:var(--text-soft);}
+.badge.ready,.badge.verified,.badge.domain_confirmed{background:var(--green-bg);color:var(--green-text);}
+.badge.analyzing,.badge.pending,.badge.cart,.badge.awaiting_domain_confirmation,.badge.uploaded,.badge.extracted,.badge.awaiting_upload{background:#FEF3C7;color:#92400E;}
+.badge.failed,.badge.payment,.badge.warn{background:#FEE2E2;color:#B91C1C;}
+.urlcard{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;}
+.urlcard .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.confirmform{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;}
+.confirmform input{max-width:280px;}
+.mtable{width:100%;border-collapse:collapse;font-size:13px;}
+.mtable th,.mtable td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top;}
+.mtable th{font-size:12px;color:var(--text-soft);font-weight:700;}
+.progress{height:8px;border-radius:999px;background:#E5E7EB;overflow:hidden;}
+.progress > div{height:100%;background:var(--accent);transition:width .3s;}
+.note{font-size:12.5px;line-height:1.55;border-radius:10px;padding:10px 12px;margin-top:10px;white-space:pre-line;}
+.note.warn{background:#FEF3C7;color:#92400E;}
+.note.err{background:#FEE2E2;color:#B91C1C;}
+.desc{color:var(--text-soft);line-height:1.5;max-width:420px;}
+.reason{font-size:11.5px;color:var(--text-faint);margin-top:4px;max-width:220px;}
+</style>
+{% endblock %}
+{% block main %}
+<div class="ws-container" style="display:flex;flex-direction:column;gap:20px;">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <a class="btns" href="{{ url_for('modules.index', bot_id=bot.id) }}">← Danh sách module</a>
+    <div style="font-size:18px;font-weight:800;">{{ module.name }}</div>
+    <span class="badge {{ module.status }}" id="module-status">{{ status_labels[module.status] }}</span>
+    <span class="hint">Loại: {{ module.module_type.name }}</span>
+    <div style="flex-grow:1;"></div>
+    {% if can_manage_modules %}
+    <form method="post" action="{{ url_for('modules.analyze', bot_id=bot.id, module_id=module.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btns" type="submit" {{ "disabled" if module.status == "analyzing" else "" }}>Phân tích lại</button>
+    </form>
+    <form method="post" action="{{ url_for('modules.delete', bot_id=bot.id, module_id=module.id) }}" onsubmit="return confirm('Xoá module này và toàn bộ hành động của nó?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btns" type="submit" {{ "disabled" if module.status == "analyzing" else "" }}>Xoá module</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-title">Tiến độ phân tích</div>
+    <div class="progress"><div id="progress-bar" style="width:{{ (module.progress_done * 100 // module.progress_total) if module.progress_total else 0 }}%;"></div></div>
+    <div class="hint" id="progress-text" style="margin-top:6px;">{{ module.progress_done }} / {{ module.progress_total }} URL</div>
+    {% if module.error_message %}<div class="note err" id="module-error">{{ module.error_message }}</div>{% else %}<div class="note err" id="module-error" hidden></div>{% endif %}
+    {% if domain_warning %}<div class="note warn">{{ domain_warning }}</div>{% endif %}
+    {% if module.analysis_note %}<div class="note warn">{{ module.analysis_note }}</div>{% endif %}
+    {% if module.last_analyzed_at %}
+    <div class="hint" style="margin-top:10px;">Phân tích lần cuối: {{ module.last_analyzed_at.strftime('%d/%m/%Y %H:%M') }} UTC
+      {% if module.analysis_charged_vnd %} · Đã trừ {{ '{:,.0f}'.format(module.analysis_charged_vnd|float).replace(',', '.') }}đ AI Credit{% endif %}</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-title">Các trang đã khai báo</div>
+    {% for u in module.urls %}
+      <div class="urlcard">
+        <div class="row">
+          <b>{{ role_labels[u.url_role] }}</b>
+          {% if u.url_role in required_roles %}<span class="req">*</span>{% endif %}
+          <span class="badge {{ u.upload_status }}">{{ upload_status_labels[u.upload_status] }}</span>
+          {% if u.extracted_at %}<span class="hint">phân tích lúc {{ u.extracted_at.strftime('%d/%m/%Y %H:%M') }} UTC</span>{% endif %}
+        </div>
+        {% if u.error_message %}<div class="note err" style="margin-top:8px;">{{ u.error_message }}</div>{% endif %}
+        {% if u.upload_status == 'domain_confirmed' %}
+          <div class="hint" style="margin-top:8px;">Domain đã xác nhận: <b>{{ u.source_url }}</b></div>
+        {% elif u.upload_status == 'extracted' %}
+          <form method="post" action="{{ url_for('modules.confirm_domain', bot_id=bot.id, module_id=module.id, url_id=u.id) }}" class="confirmform">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="lbl" for="source_url_{{ u.id }}" style="margin:0;">Domain của trang này:</label>
+            <input class="field" type="text" id="source_url_{{ u.id }}" name="source_url" maxlength="255" placeholder="vd: shop.vn"
+                   value="{{ u.detected_domain or '' }}" {{ "" if can_manage_modules else "disabled" }}>
+            {% if can_manage_modules %}<button class="btnp" type="submit">Xác nhận</button>{% endif %}
+          </form>
+          <div class="hint" style="margin-top:6px;">
+            {% if u.detected_domain %}Hệ thống đoán đây là "{{ u.detected_domain }}" — kiểm tra lại và bấm Xác nhận (hoặc sửa nếu sai).
+            {% else %}Hệ thống không đoán được domain của trang này — vui lòng nhập tay rồi bấm Xác nhận.{% endif %}
+            Hành động trên trang này chỉ chạy được sau khi xác nhận domain.
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <div class="card-title">Hành động phát hiện được</div>
+    {% if rows %}
+    <div class="hint" style="margin-bottom:10px;">Chỉ hành động ĐÃ DUYỆT mới được giao cho trợ lý. Ngưỡng độ tin cậy tối thiểu để duyệt:
+      Chỉ đọc {{ (thresholds['read_only'] * 100)|int }}%, Giỏ hàng {{ (thresholds['cart'] * 100)|int }}%, Thanh toán {{ (thresholds['payment'] * 100)|int }}% (và phải bật công tắc thanh toán). Không có duyệt hàng loạt.</div>
+    <table class="mtable">
+      <thead><tr><th>Hành động</th><th>Mô tả</th><th>Rủi ro</th><th>Tin cậy</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        {% set a = row.action %}
+        <tr>
+          <td><div style="font-weight:700;">{{ a.action_name }}</div><div class="hint">{{ type_labels[a.action_type] }}</div></td>
+          <td class="desc">{{ a.description }}</td>
+          <td><span class="badge {{ row.risk }}">{{ risk_labels[row.risk] }}</span></td>
+          <td>{{ (a.confidence * 100)|round|int }}%</td>
+          <td>
+            {% if a.failure_reason %}
+              <span class="badge warn">Cảnh báo: trang đã đổi</span>
+              <div class="reason">Widget báo không tìm thấy phần tử ({{ a.failure_reason }}) lúc {{ a.failed_at.strftime('%d/%m/%Y %H:%M') if a.failed_at else '' }}. Bấm "Phân tích lại" để cập nhật.</div>
+            {% elif a.verified %}<span class="badge verified">Đã duyệt</span>
+            {% else %}<span class="badge">Chưa duyệt</span>{% endif %}
+          </td>
+          <td style="text-align:right;">
+            {% if can_manage_modules %}
+              {% if a.verified %}
+              <form method="post" action="{{ url_for('modules.unapprove', bot_id=bot.id, module_id=module.id, action_id=a.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btns" type="submit">Bỏ duyệt</button>
+              </form>
+              {% else %}
+              <form method="post" action="{{ url_for('modules.approve', bot_id=bot.id, module_id=module.id, action_id=a.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btnp" type="submit" {{ "disabled" if row.block_reason else "" }}>Duyệt</button>
+              </form>
+              {% if row.block_reason %}<div class="reason" style="margin-left:auto;">{{ row.block_reason }}</div>{% endif %}
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="hint">Chưa có hành động nào{% if module.status in ('pending', 'analyzing') %} — đang chờ/đang phân tích{% endif %}.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block shell_extra_js %}
+<script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+<script>
+(function () {
+  var BOT_ID = {{ bot.id }}, MODULE_ID = {{ module.id }};
+  var status = {{ module.status|tojson }};
+  var LABELS = {{ status_labels|tojson }};
+  var statusEl = document.getElementById('module-status');
+  var bar = document.getElementById('progress-bar'), text = document.getElementById('progress-text'), err = document.getElementById('module-error');
+
+  function apply(info) {
+    if (info.id !== MODULE_ID) return;
+    status = info.status;
+    statusEl.textContent = LABELS[info.status] || info.status;
+    statusEl.className = 'badge ' + info.status;
+    if (info.total) { bar.style.width = Math.floor(info.done * 100 / info.total) + '%'; text.textContent = info.done + ' / ' + info.total + ' URL'; }
+    if (info.error) { err.textContent = info.error; err.hidden = false; }
+    var done = ['ready', 'failed', 'awaiting_domain_confirmation'].indexOf(info.status) !== -1;
+    if (done) setTimeout(function () { location.reload(); }, 600);  // hiện danh sách hành động/lỗi/ô xác nhận domain cuối cùng
+  }
+
+  function isDone(s) { return ['ready', 'failed', 'awaiting_domain_confirmation'].indexOf(s) !== -1; }
+
+  var polling = null;
+  function poll() {
+    if (polling || isDone(status)) return;
+    polling = setInterval(function () {
+      fetch('{{ url_for("modules.status", bot_id=bot.id, module_id=module.id) }}', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); }).then(apply).catch(function () {});
+    }, 4000);
+  }
+
+  if (isDone(status)) return;
+  var socket = io({ transports: ['websocket', 'polling'] });
+  socket.on('connect', function () { socket.emit('join_bot', { bot_id: BOT_ID }, function (res) { if (!res || !res.ok) poll(); }); });
+  socket.on('module_status', apply);
+  socket.on('connect_error', poll);
+  socket.on('disconnect', poll);
+})();
+</script>
+{% endblock %}

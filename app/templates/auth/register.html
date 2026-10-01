@@ -6,7 +6,7 @@
 {% block content %}
 <div class="auth-page">
   <div class="auth-card">
-    <a href="{{ url_for('auth.login') }}" class="auth-back">
+    <a href="{{ url_for('auth.login', next=next) if next else url_for('auth.login') }}" class="auth-back">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       Quay lại
     </a>
@@ -22,6 +22,7 @@
 
     <form method="post" action="{{ url_for('auth.register') }}" novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
       <div class="field-group">
         <label class="field-label" for="full_name">Họ tên</label>
@@ -55,7 +56,7 @@
       <button class="primary" type="submit">Tạo tài khoản</button>
     </form>
 
-    <p class="auth-footer">Đã có tài khoản? <a href="{{ url_for('auth.login') }}">Đăng nhập</a></p>
+    <p class="auth-footer">Đã có tài khoản? <a href="{{ url_for('auth.login', next=next) if next else url_for('auth.login') }}">Đăng nhập</a></p>
   </div>
 </div>
 {% endblock %}

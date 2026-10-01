@@ -53,7 +53,7 @@
 </style>
 {% endblock %}
 {% block topbar_actions %}
-{% if settings.widget_domain %}
+{% if bot.domains %}
   <div class="plan-badge plan-free" style="border-color:#A7F3D0;">1 kênh đang hoạt động</div>
 {% endif %}
 {% endblock %}
@@ -70,7 +70,7 @@
           </div>
           <div style="flex-grow:1;">
             <div style="font-size:14px;font-weight:700;">Web Widget</div>
-            {% if settings.widget_domain %}
+            {% if bot.domains %}
               <span class="badge" style="background:var(--green-bg);color:var(--green-text);">● Đã kết nối</span>
             {% else %}
               <span class="badge" style="background:#F3F4F6;color:var(--text-soft);">Chưa cấu hình domain</span>
@@ -117,18 +117,33 @@
       <div class="section-title">Nhúng vào website (Web Widget)</div>
       <div class="card" style="display:flex;gap:20px;flex-wrap:wrap;">
         <div style="flex:1;min-width:280px;">
-          <form method="post" action="{{ url_for('dashboard.bot_publish', bot_id=bot.id) }}" style="margin-bottom:16px;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div style="margin-bottom:16px;">
             <label class="lbl" for="widget_domain">Domain website được phép nhúng widget</label>
-            <div style="display:flex;gap:8px;">
-              <input class="field" type="text" id="widget_domain" name="widget_domain" placeholder="vd: shopabc.vn" value="{{ settings.widget_domain or '' }}">
-              <button class="btnp" type="submit" style="white-space:nowrap;">Lưu domain</button>
-            </div>
-            <div class="hint">Widget chỉ chấp nhận request từ domain này và các subdomain của nó (chống nhúng trái phép ở website khác). Chưa lưu domain thì widget không hiển thị. Thử ở máy local: nhập <code>localhost</code>.</div>
-          </form>
+            {% if bot.domains %}
+              <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+                {% for d in bot.domains %}
+                  <form method="post" action="{{ url_for('dashboard.bot_publish_domain_delete', bot_id=bot.id, domain_id=d.id) }}" style="display:flex;align-items:center;gap:8px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <span style="flex-grow:1;font-size:13px;font-weight:600;">{{ d.domain }}</span>
+                    {% if can_publish %}<button class="btns" type="submit" style="white-space:nowrap;">Xóa</button>{% endif %}
+                  </form>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if can_publish %}
+            <form method="post" action="{{ url_for('dashboard.bot_publish_domain_add', bot_id=bot.id) }}" style="display:flex;gap:8px;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input class="field" type="text" id="widget_domain" name="widget_domain" placeholder="vd: shopabc.vn" required>
+              <button class="btnp" type="submit" style="white-space:nowrap;">Thêm domain</button>
+            </form>
+            {% else %}
+            <div class="hint">Chỉ chủ nhóm và quản trị viên mới thêm/xóa domain và đổi giao diện widget.</div>
+            {% endif %}
+            <div class="hint">Widget chỉ chấp nhận request từ các domain trong danh sách và subdomain của chúng (chống nhúng trái phép ở website khác) — thêm nhiều domain nếu website có nhiều tên miền không cùng gốc. Chưa có domain nào thì widget không hiển thị. Thử ở máy local: nhập <code>localhost</code>.</div>
+          </div>
 
           <div style="font-size:13px;color:var(--text-soft);margin-bottom:10px;">Dán đoạn mã sau vào trước thẻ <code>&lt;/body&gt;</code> của website để hiển thị khung chat.</div>
-          <div id="embed-code" style="background:#0F172A;color:#E2E8F0;border-radius:10px;padding:14px 16px;font-family:monospace;font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre;">&lt;script src="{{ embed_src }}" data-bot-id="{{ bot.id }}"&gt;&lt;/script&gt;</div>
+          <div id="embed-code" style="background:#0F172A;color:#E2E8F0;border-radius:10px;padding:14px 16px;font-family:monospace;font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre;">&lt;script src="{{ embed_src }}" data-bot-id="{{ bot.public_id }}"&gt;&lt;/script&gt;</div>
         </div>
         <div style="width:150px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;">
           <button class="btnp" type="button" id="copy-embed-btn" style="justify-content:center;">Sao chép mã</button>
@@ -166,7 +181,7 @@
                 </span>
                 <span class="iconname">{{ widget_icon_labels[custom_icon_key] }}</span>
               </label>
-              <button type="button" class="iconopt-upload-btn" id="icon-upload-trigger">{{ "Đổi ảnh" if custom_icon_url else "Tải ảnh lên" }}</button>
+              <button type="button" class="iconopt-upload-btn" id="icon-upload-trigger" {{ "" if can_publish else "disabled" }}>{{ "Đổi ảnh" if custom_icon_url else "Tải ảnh lên" }}</button>
             </div>
           </div>
           <div class="hint">Ảnh PNG/JPG/WEBP, tối đa {{ max_icon_mb }}MB. Chọn ảnh vuông để hiển thị đẹp nhất.</div>
@@ -221,7 +236,7 @@
         </div>
 
         <div class="savebar">
-          <button class="btnp" type="submit">Lưu giao diện</button>
+          {% if can_publish %}<button class="btnp" type="submit">Lưu giao diện</button>{% endif %}
           <span class="dirty" id="dirty-note">● Có thay đổi chưa lưu</span>
         </div>
       </form>
@@ -250,9 +265,6 @@
 {% endblock %}
 {% block footer_left %}
 <a href="{{ url_for('dashboard.bot_knowledge', bot_id=bot.id) }}" class="btns">← Quay lại: Cơ sở tri thức</a>
-{% endblock %}
-{% block footer_right %}
-<a href="{{ url_for('dashboard.bot_history', bot_id=bot.id) }}" class="btnp">Tiếp theo: Lịch sử chat →</a>
 {% endblock %}
 {% block workspace_extra_js %}
 {# Cùng file embed.js với website khách; ?v= tránh dính cache khi embed.js được cập nhật #}
@@ -292,15 +304,21 @@
   var savedState = JSON.stringify(collect());
 
   // Khung xem trước = widget thật, đặt trong khung giả lập trang web
-  var widget = AIChatbotWidget.create({{ widget_config|tojson }}, {
+  var WIDGET_CONFIG = {{ widget_config|tojson }};
+  var widget = AIChatbotWidget.create(WIDGET_CONFIG, {
     container: stage,
     open: true,
-    send: function (text, history) {
-      return AIChatbotWidget.postJson(
-        '{{ url_for("dashboard.bot_preview_chat", bot_id=bot.id) }}',
-        { message: text, history: history.map(function (m) { return { role: m.role === 'user' ? 'customer' : 'bot', content: m.content }; }) },
-        { 'X-CSRF-Token': '{{ csrf_token }}' }
-      );
+    // async: true = server trả ngay mã lượt; tiến trình thật + câu trả lời lấy qua followTurn (cùng cơ chế với widget nhúng thật).
+    // Kỹ thuật "trả lời bất đồng bộ" tắt ở Bước 1 (WIDGET_CONFIG.async_enabled === false) -> không gửi cờ này (xem embed.js:send()).
+    send: function (text, history, hooks) {
+      var chatUrl = '{{ url_for("dashboard.bot_preview_chat", bot_id=bot.id) }}';
+      var body = { message: text, history: history.map(function (m) { return { role: m.role === 'user' ? 'customer' : 'bot', content: m.content }; }) };
+      if (WIDGET_CONFIG.async_enabled !== false) body.async = true;
+      return AIChatbotWidget.postJson(chatUrl, body, { 'X-CSRF-Token': '{{ csrf_token }}' }).then(function (data) {
+        return AIChatbotWidget.followTurn(data, function (turnId, after) {
+          return AIChatbotWidget.getJson(chatUrl + '/' + encodeURIComponent(turnId) + '?after=' + after, { credentials: 'same-origin' });
+        }, hooks);
+      });
     }
   });
 

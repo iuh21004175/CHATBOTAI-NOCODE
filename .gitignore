@@ -9,3 +9,7 @@ uploads/
 
 # Mô hình embedding ONNX (~2,13 GiB) - vượt giới hạn tệp của GitHub, đặt thủ công (xem docs/BAO_CAO_KY_THUAT.md, mục 7)
 models/
+
+# Dữ liệu chạy của AI Agent (DSH_HOME, workspace, tệp ngữ cảnh lượt) — tự sinh, không commit
+var/
+markitdown/

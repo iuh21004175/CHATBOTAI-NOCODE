@@ -1,0 +1,159 @@
+{% extends "shell.html" %}
+{% set active_nav = "modules" %}
+{% set page_title = "Module" %}
+{% block title %}Module — {{ bot.name }}{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bot_workspace.css') }}">  {# .card/.field/.btnp/.btns/.lbl/.hint dùng chung; phần .ws-* không dùng ở đây #}
+<style>
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F3F4F6;color:var(--text-soft);}
+.badge.ready{background:var(--green-bg);color:var(--green-text);}
+.badge.analyzing,.badge.pending,.badge.awaiting_domain_confirmation{background:#FEF3C7;color:#92400E;}
+.badge.failed{background:#FEE2E2;color:#B91C1C;}
+.typecards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-bottom:16px;}
+.typecard{position:relative;display:block;border:1.5px solid var(--border);border-radius:12px;padding:14px;background:#fff;cursor:pointer;}
+.typecard input{position:absolute;opacity:0;pointer-events:none;}
+.typecard:has(input:checked){border-color:var(--accent);background:var(--accent-soft);}
+.typecard:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px;}
+.typecard-name{font-size:14px;font-weight:700;}
+.typecard-desc{font-size:12.5px;color:var(--text-soft);margin-top:4px;line-height:1.5;}
+.urlrow{margin-bottom:12px;}
+.req{color:#B91C1C;margin-left:3px;}
+.mtable{width:100%;border-collapse:collapse;font-size:13px;}
+.mtable th,.mtable td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.mtable th{font-size:12px;color:var(--text-soft);font-weight:700;}
+.switchrow{display:flex;align-items:flex-start;gap:12px;}
+.switchrow input{margin-top:3px;}
+</style>
+{% endblock %}
+{% block main %}
+<div class="ws-container" style="display:flex;flex-direction:column;gap:22px;">
+  <div>
+    <div style="font-size:18px;font-weight:800;">Module</div>
+    <div class="hint" style="margin-top:6px;">
+      Module mở rộng khả năng của trợ lý. Loại "Hỗ trợ bán hàng": tải lên các trang trên website của bạn (mỗi trang 1 file .zip) để trợ lý thực hiện thao tác thay khách (xem sản phẩm, thêm giỏ hàng...). Hệ thống phân tích ở nền,
+      bạn xác nhận domain của từng trang rồi duyệt từng hành động; hành động chỉ chạy trên trình duyệt của khách, trên đúng website đã xác nhận. Yêu cầu bật chế độ AI Agent.
+    </div>
+  </div>
+
+  {% if can_manage_modules %}
+  <div class="card">
+    <div class="card-title">Khai báo module mới</div>
+    <form method="post" action="{{ url_for('modules.create', bot_id=bot.id) }}" id="module-form" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="lbl">Chọn loại module</div>
+      <div class="typecards" id="type-cards"></div>
+      <div id="module-fields" hidden>
+        <div class="urlrow">
+          <label class="lbl" for="module-name">Tên module (tuỳ chọn)</label>
+          <input class="field" type="text" id="module-name" name="name" maxlength="120" placeholder="vd: Cửa hàng chính">
+        </div>
+        <div id="url-fields"></div>
+        <div class="hint" id="url-hint" style="margin-bottom:14px;">
+          Tối đa {{ max_urls }} trang. Với mỗi trang: (1) mở trang đó trên trình duyệt, đăng nhập nếu cần; (2) bấm chuột phải &gt; Lưu trang dạng... (Save Page As...) &gt; chọn "Trang web, Hoàn chỉnh" (Webpage, Complete);
+          (3) nén file .html vừa lưu CÙNG với thư mục đi kèm (thường tên dạng "&lt;tên trang&gt;_files") thành 1 file .zip; (4) tải file .zip đó lên ở ô tương ứng bên dưới.
+        </div>
+        <div class="hint" id="doc-reader-note" style="margin-bottom:14px;" hidden>
+          Khách gửi tối đa {{ attachment_limits.max_files }} tệp mỗi tin, mỗi tệp tối đa {{ attachment_limits.max_mb }} MB. Tệp chỉ dùng trong cuộc trò chuyện của khách đó, không đưa vào Cơ sở tri thức.
+          .md/.txt/.csv đọc trực tiếp; PDF, Word, Excel, PowerPoint đọc bằng markitdown (miễn phí). Ảnh và PDF dạng bản scan đọc bằng AI (DeepSeek nhận diện chữ trong ảnh) — tốn AI Credit của trợ lý cho mỗi lần đọc.
+        </div>
+        <button class="btnp" type="submit" id="module-submit">Khai báo và phân tích</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Hành động thanh toán</div>
+    <form method="post" action="{{ url_for('modules.settings', bot_id=bot.id) }}" class="switchrow">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="allow_agent_payment_actions" value="0">
+      <input type="checkbox" id="allow-payment" name="allow_agent_payment_actions" value="1" {{ "checked" if settings.allow_agent_payment_actions else "" }}>
+      <div style="flex-grow:1;">
+        <label for="allow-payment" style="font-size:13.5px;font-weight:700;">Cho phép trợ lý thực hiện hành động thanh toán</label>
+        <div class="hint">Mặc định TẮT. Khi tắt, hành động thanh toán (đặt hàng, nhập thẻ...) không thể duyệt và trợ lý không bao giờ được giao chúng. Khi bật, mỗi hành động vẫn phải duyệt riêng và khách luôn phải bấm "Đồng ý" trong khung chat trước khi thực hiện.</div>
+      </div>
+      <button class="btns" type="submit" style="white-space:nowrap;">Lưu</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-title">Module đã khai báo</div>
+    {% if modules %}
+    <table class="mtable">
+      <thead><tr><th>Tên</th><th>Loại</th><th>Trạng thái</th><th>Hành động (đã duyệt / tổng)</th><th></th></tr></thead>
+      <tbody>
+      {% for m in modules %}
+        <tr>
+          <td style="font-weight:700;">{{ m.name }}</td>
+          <td>{{ m.module_type.name }}</td>
+          <td><span class="badge {{ m.status }}">{{ status_labels[m.status] }}</span></td>
+          {% if is_document_reader(m.module_type) %}
+          <td>—</td>
+          <td style="text-align:right;">
+            {% if can_manage_modules %}
+            <form method="post" action="{{ url_for('modules.delete', bot_id=bot.id, module_id=m.id) }}" onsubmit="return confirm('Gỡ module Đọc tài liệu? Khung chat sẽ không còn nhận tệp của khách.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="btns" type="submit">Gỡ module</button>
+            </form>
+            {% endif %}
+          </td>
+          {% else %}
+          <td>{{ m.actions|selectattr('verified')|list|length }} / {{ m.actions|length }}</td>
+          <td style="text-align:right;"><a class="btns" href="{{ url_for('modules.detail', bot_id=bot.id, module_id=m.id) }}">Xem kết quả</a></td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="hint">Chưa có module nào.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block shell_extra_js %}
+<script>
+(function () {
+  // Dữ liệu loại module + vai trò URL do server sinh từ DB (module_types / module_type_url_roles); server vẫn validate bắt buộc/tuỳ chọn theo DB.
+  var TYPES = {{ types_json|tojson }};
+  var cards = document.getElementById('type-cards');
+  var fieldsBox = document.getElementById('module-fields');
+  var urlBox = document.getElementById('url-fields');
+  if (!cards) return;
+
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+
+  function renderFields(type) {
+    urlBox.innerHTML = '';
+    type.roles.forEach(function (role) {
+      var row = el('div', 'urlrow');
+      var label = el('label', 'lbl', role.label);
+      label.htmlFor = 'file_' + role.role;
+      if (role.required) label.appendChild(el('span', 'req', '*')); else label.appendChild(el('span', 'hint', ' (tuỳ chọn)'));
+      var input = el('input', 'field');
+      input.type = 'file'; input.id = 'file_' + role.role; input.name = 'file_' + role.role; input.accept = '.zip,application/zip';
+      if (role.required) input.required = true;
+      row.appendChild(label); row.appendChild(input);
+      urlBox.appendChild(row);
+    });
+    // Loại không cần URL (vd Đọc tài liệu): không có ô nhập URL/tối đa URL, nút là "Cài đặt" (server đánh dấu sẵn sàng ngay, không phân tích)
+    var noUrl = type.roles.length === 0;
+    document.getElementById('url-hint').hidden = noUrl;
+    document.getElementById('doc-reader-note').hidden = type.key !== 'document_reader';
+    document.getElementById('module-submit').textContent = noUrl ? 'Cài đặt module' : 'Khai báo và phân tích';
+    fieldsBox.hidden = false;
+  }
+
+  TYPES.forEach(function (type, i) {
+    var card = el('label', 'typecard');
+    var radio = el('input'); radio.type = 'radio'; radio.name = 'module_type_id'; radio.value = type.id; radio.required = true;
+    radio.addEventListener('change', function () { renderFields(type); });
+    card.appendChild(radio);
+    card.appendChild(el('div', 'typecard-name', type.name));
+    card.appendChild(el('div', 'typecard-desc', type.description));
+    cards.appendChild(card);
+    if (TYPES.length === 1) { radio.checked = true; renderFields(type); }
+  });
+})();
+</script>
+{% endblock %}

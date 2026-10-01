@@ -22,7 +22,6 @@ STATUS_OPEN = "open"
 STATUS_CLOSED = "closed"
 LIST_LIMIT = 100
 PREVIEW_CHARS = 90
-MAX_STAFF_MESSAGE_CHARS = 2000
 
 # Màu chấm kênh cạnh avatar (theo mẫu thiết kế); kênh chưa khai báo dùng màu mặc định
 CHANNEL_COLORS = {"web_widget": "#2563EB", "facebook": "#1877F2", "zalo": "#0068FF"}
@@ -186,20 +185,6 @@ def conversation_detail(conv: Conversation, after_id: int = 0) -> dict:
         "messages": [_message_dict(m) for m in messages],
         "customer": _customer_panel(conv),
     }
-
-
-def reply_message(team_id: int, conv: Conversation, content) -> tuple[dict | None, str | None]:
-    """Nhân viên trả lời thủ công: lưu tin (sender="staff") rồi phát realtime. Trả về (tin nhắn, lỗi)."""
-    if not isinstance(content, str) or not content.strip():
-        return None, "Vui lòng nhập nội dung tin nhắn."
-    content = content.strip()
-    if len(content) > MAX_STAFF_MESSAGE_CHARS:
-        return None, f"Tin nhắn tối đa {MAX_STAFF_MESSAGE_CHARS} ký tự."
-    message = Message(conversation_id=conv.id, sender="staff", content=content)
-    db.session.add(message)
-    db.session.commit()
-    emit_message(team_id, conv.id, message.id)
-    return _message_dict(message), None
 
 
 def set_status(team_id: int, conv: Conversation, status) -> str | None:

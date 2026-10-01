@@ -20,6 +20,15 @@
       </div>
     </div>
     <div class="ws-topbar-right">
+      {# Lịch sử chat là công cụ theo dõi SAU khi triển khai, không thuộc 3 bước tạo bot: là mục điều hướng riêng, có ở mọi trang của bot #}
+      <a href="{{ url_for('modules.index', bot_id=bot.id) }}" class="ws-navlink {{ 'active' if nav == 'modules' else '' }}">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M17.5 14v7M14 17.5h7"></path></svg>
+        Module
+      </a>
+      <a href="{{ url_for('dashboard.bot_history', bot_id=bot.id) }}" class="ws-navlink {{ 'active' if step == 0 and nav != 'modules' else '' }}">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        Lịch sử chat
+      </a>
       {% block topbar_actions %}{% endblock %}
     </div>
   </header>
@@ -30,7 +39,6 @@
         (1, "Thiết lập", "dashboard.bot_setup"),
         (2, "Cơ sở tri thức", "dashboard.bot_knowledge"),
         (3, "Xuất bản", "dashboard.bot_publish"),
-        (4, "Lịch sử chat", "dashboard.bot_history"),
       ] %}
         <a href="{{ url_for(endpoint, bot_id=bot.id) }}" class="ws-step">
           <span class="stepcircle {{ 'active' if step == n else ('done' if step > n else '') }}">

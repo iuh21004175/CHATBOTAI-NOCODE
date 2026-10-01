@@ -99,6 +99,33 @@
   gap: 10px;
 }
 
+.sidebar-logout {
+  margin: 0 12px 12px;
+}
+
+.sidebar-logout-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-soft);
+  cursor: pointer;
+  text-align: left;
+}
+
+.sidebar-logout-btn:hover,
+.sidebar-logout-btn:focus-visible {
+  background: #F5F5F4;
+  color: var(--text);
+}
+
 .sidebar-avatar {
   width: 32px;
   height: 32px;
@@ -232,6 +259,25 @@
   background: #1E40AF;
 }
 
+.btn-secondary-sm {
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.btn-secondary-sm:hover {
+  color: var(--black);
+  border-color: var(--black);
+}
+
 .shell-content {
   flex-grow: 1;
   padding: 28px;
@@ -265,3 +311,30 @@
     display: none;
   }
 }
+
+/* ---- Bộ chuyển nhóm (sidebar) ---- */
+.team-switch { position: relative; }
+.team-switch > summary { list-style: none; cursor: pointer; }
+.team-switch > summary::-webkit-details-marker { display: none; }
+.team-switch-chevron { color: var(--text-faint); flex-shrink: 0; }
+.team-switch[open] .team-switch-chevron { transform: rotate(180deg); }
+.team-menu {
+  position: absolute; left: 12px; right: 12px; top: 100%; z-index: 30;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .14); padding: 6px; max-height: 60vh; overflow-y: auto;
+}
+.team-menu form { margin: 0; }
+.team-menu-item {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: none; border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 600; color: var(--text); text-align: left;
+}
+.team-menu-item:hover, .team-menu-link:hover { background: var(--accent-soft); }
+.team-menu-item.active { background: var(--accent-soft); color: var(--accent-dark); }
+.team-menu-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-menu-role { font-size: 11px; color: var(--text-faint); flex-shrink: 0; }
+.team-menu-link {
+  display: block; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  color: var(--text-soft); text-decoration: none; border-top: 1px solid transparent;
+}
+.team-menu-link:first-of-type { border-top-color: var(--border); margin-top: 4px; }

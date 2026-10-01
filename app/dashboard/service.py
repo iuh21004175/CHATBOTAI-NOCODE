@@ -1,26 +1,37 @@
 """Service layer cho Bảng điều khiển: tổng hợp dữ liệu thật từ bots/documents/conversations/
 messages theo team đang đăng nhập (nguyên tắc multi-tenant) — không có dữ liệu giả lập.
 """
+import logging
 import re
 import time
 import uuid
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+from flask import current_app
 from markupsafe import Markup, escape
 from minio.error import S3Error
 
+from app.attachments import service as attachments_service
+from app.customers import service as customers_service
 from app.dashboard.assistant_templates import MAX_INSTRUCTIONS_CHARS
-from app.models import Bot, BotSettings, Conversation, Customer, Document, Message, Team, TeamMember, User
-from app.widget import appearance, icons
+from app.credits import service as credits_service
+from app.models import AgentExecution, Bot, BotDomain, BotSettings, Conversation, Customer, Document, Message, Team, TeamMember, User
+from app.widget import appearance, icons, turns
+from app.widget import domains as widget_domains
 from config import Config
 from core.context_engine import cost_estimate as ctx_cost
+from core.context_engine import execution_cost as ctx_execution_cost
+from core.context_engine.agent import cache as agent_cache
+from core.context_engine.agent import runtime as agent_runtime
 from core.context_engine import engine as ctx_engine
 from core.context_engine import prompts as ctx_prompts
 from core.context_engine import settings as ctx_settings
 from core.context_engine import state as ctx_state
 from core.context_engine.builder import RecentRow
-from extensions import db
+from extensions import db, socketio
+
+logger = logging.getLogger(__name__)
 
 STATS_WINDOW_DAYS = 30
 MAX_TOKENS_MIN = 10
@@ -48,7 +59,7 @@ def create_bot(team_id: int, name: str) -> Bot:
     bot = Bot(team_id=team_id, name=name.strip())
     db.session.add(bot)
     db.session.flush()
-    db.session.add(BotSettings(bot_id=bot.id, language="vi", temperature=0.7))
+    db.session.add(BotSettings(bot_id=bot.id, language="vi"))
     db.session.commit()
     return bot
 
@@ -62,7 +73,7 @@ def get_bot_for_team(bot_id: int, team_id: int) -> Bot | None:
 def get_or_create_settings(bot: Bot) -> BotSettings:
     settings = BotSettings.query.filter_by(bot_id=bot.id).first()
     if settings is None:
-        settings = BotSettings(bot_id=bot.id, language="vi", temperature=0.7)
+        settings = BotSettings(bot_id=bot.id, language="vi")
         db.session.add(settings)
         db.session.commit()
     return settings
@@ -109,71 +120,37 @@ def optimize_instructions(text: str) -> str:
 
 MAX_LOW_CONFIDENCE_MESSAGE_CHARS = 500
 
-# Mọi trường dưới đây luôn hiển thị và chỉnh được (không còn phân theo mức cấu hình). step = bước của ô nhập;
-# khoảng hợp lệ + mặc định lấy từ core/context_engine/settings (RANGES, DEFAULTS).
+# Chế độ Nâng cao: các thông số bộ nhớ hội thoại chỉnh dạng số (ctx_settings.ADVANCED_FIELDS). Các tham số nội bộ của
+# RAG/Context Engine (ngưỡng khoảng cách, số đoạn giữ lại, ngưỡng nén ngữ cảnh...) KHÔNG hiển thị ở chế độ nào —
+# xem ctx_settings.ENGINE_INTERNAL. step = bước của ô nhập; khoảng hợp lệ + mặc định lấy từ RANGES, DEFAULTS.
 # Nội dung tooltip (?) cạnh nhãn: help = tác dụng; low/high = ảnh hưởng khi chỉnh nhỏ/lớn; note = ghi chú thêm.
 ENGINE_FIELDS = [
     {"name": "recent_message_limit", "label": "Số tin gần nhất đưa vào ngữ cảnh", "step": 1,
      "help": "Số tin nhắn gần nhất (của khách và của AI) được gửi nguyên văn cho AI mỗi lượt để hiểu mạch trò chuyện.",
      "low": "AI dễ quên điều vừa nói nhưng nhanh và tốn ít token hơn.",
      "high": "AI theo mạch hội thoại tốt hơn nhưng câu lệnh dài hơn, tốn token và chậm hơn."},
-    {"name": "summary_trigger_tokens", "label": "Tóm tắt hội thoại khi các tin chưa tóm tắt vượt (token)", "step": 100,
-     "help": "Khi phần hội thoại chưa được tóm tắt vượt mức này, hệ thống tóm tắt phần cũ ở nền để AI vẫn nhớ khi hội thoại dài.",
-     "low": "Tóm tắt sớm và thường xuyên hơn, tốn thêm lượt gọi AI ở nền.",
-     "high": "Giữ tin nguyên văn lâu hơn nhưng ngữ cảnh dễ đầy trước khi được tóm tắt."},
-    {"name": "rag_max_context_tokens", "label": "Ngân sách token cho thông tin tra cứu", "step": 100,
-     "help": "Trần token của phần tài liệu đưa cho AI mỗi lượt. Nếu tài liệu tìm được vượt trần này và hỏi làm rõ đang bật, "
-             "AI hỏi khách thu hẹp phạm vi thay vì trả lời.",
-     "low": "Tiết kiệm token nhưng AI dễ phải hỏi thu hẹp hoặc thiếu chi tiết.",
-     "high": "Đưa được nhiều tài liệu hơn nhưng câu lệnh dài, tốn chi phí và chậm hơn."},
-    {"name": "rag_top_k", "label": "Số đoạn tài liệu lấy về khi tra cứu", "step": 1,
-     "help": "Số đoạn tài liệu giống câu hỏi nhất được lấy về ở bước tra cứu, trước khi lọc theo ngưỡng khoảng cách.",
-     "low": "Nhanh và gọn nhưng dễ bỏ sót đoạn liên quan.",
-     "high": "Ít bỏ sót hơn nhưng lẫn nhiều đoạn lạc đề cần lọc."},
-    {"name": "rag_distance_threshold", "label": "Ngưỡng khoảng cách tra cứu", "step": 0.05, "slider": True,
-     "help": "Đoạn tài liệu có khoảng cách LỚN HƠN ngưỡng bị loại (khoảng cách càng nhỏ thì càng sát nghĩa với câu hỏi).",
-     "low": "Khắt khe: chỉ dùng đoạn rất sát nhưng có thể bỏ sót khi khách hỏi ngắn hoặc không dấu.",
-     "high": "Thoáng: ít bỏ sót nhưng dễ lẫn đoạn lạc đề.",
-     "note": "Gợi ý: 1,50 (đo trên dữ liệu thật: câu hỏi đúng chủ đề ≈ 1,2–1,5; lạc đề ≥ 1,6)."},
     {"name": "recent_token_limit", "label": "Trần token của tin gần đây", "step": 100,
      "help": "Tổng token tối đa của các tin gần đây gửi kèm. Chạm trần thì dừng thêm tin cũ dù chưa đủ số tin ở mục \"Số tin gần nhất\".",
      "low": "Mạch hội thoại ngắn, tiết kiệm token.",
      "high": "Giữ được những tin dài hơn nhưng tốn token."},
+    {"name": "summary_trigger_tokens", "label": "Tóm tắt hội thoại khi các tin chưa tóm tắt vượt (token)", "step": 100,
+     "help": "Khi phần hội thoại chưa được tóm tắt vượt mức này, hệ thống tóm tắt phần cũ ở nền để AI vẫn nhớ khi hội thoại dài.",
+     "low": "Tóm tắt sớm và thường xuyên hơn, tốn thêm lượt gọi AI ở nền.",
+     "high": "Giữ tin nguyên văn lâu hơn nhưng ngữ cảnh dễ đầy trước khi được tóm tắt."},
     {"name": "summary_max_tokens", "label": "Độ dài tối đa của bản tóm tắt (token)", "step": 50,
      "help": "Độ dài tối đa của bản tóm tắt hội thoại do hệ thống tạo ở nền.",
      "low": "Tóm tắt cô đọng nhưng dễ mất chi tiết.",
      "high": "Giữ nhiều chi tiết hơn nhưng chiếm nhiều chỗ trong ngữ cảnh."},
-    {"name": "intent_confidence_threshold", "label": "Ngưỡng chắc chắn của ý định", "step": 0.05,
-     "help": "Nếu độ chắc chắn về ý định của khách thấp hơn ngưỡng này, AI hỏi lại thay vì đoán.",
-     "low": "Ít hỏi lại nhưng dễ trả lời lệch ý khách.",
-     "high": "Hỏi lại nhiều hơn nên chắc ý hơn nhưng dễ làm phiền khách."},
-    {"name": "slot_completion_threshold", "label": "Ngưỡng đủ thông tin bắt buộc", "step": 0.05,
-     "help": "Tỉ lệ thông tin bắt buộc khách phải cung cấp (thang 0–1) để AI coi là đủ; dưới ngưỡng, AI hỏi thêm.",
-     "low": "Ít hỏi thêm nhưng có thể thiếu dữ kiện khi xử lý yêu cầu.",
-     "high": "Đòi đủ thông tin mới trả lời nên chính xác hơn nhưng hỏi nhiều hơn."},
-    {"name": "rag_rerank_top_n", "label": "Số đoạn giữ lại sau lọc", "step": 1,
-     "help": "Số đoạn tài liệu liên quan nhất được giữ lại để đưa cho AI sau khi lọc theo ngưỡng khoảng cách.",
-     "low": "Câu lệnh gọn nhưng ít nguồn để AI dựa vào.",
-     "high": "Nhiều nguồn hơn nhưng dễ lẫn nhiễu và tốn token."},
-    {"name": "max_candidate_count", "label": "Số nguồn liên quan tối đa trước khi hỏi thu hẹp", "step": 1,
-     "help": "Nếu số vùng nội dung khác nhau cùng khớp câu hỏi vượt mức này (và không vùng nào nổi trội), AI hỏi thu hẹp thay vì trả lời.",
-     "low": "AI hỏi thu hẹp thường xuyên hơn.",
-     "high": "AI ít hỏi thu hẹp hơn nhưng có thể trả lời chung chung."},
-    {"name": "context_pressure_warning", "label": "Ngưỡng cảnh báo áp lực ngữ cảnh", "step": 0.05,
-     "help": "Áp lực ngữ cảnh = token đầu vào / tổng ngân sách ngữ cảnh. Vượt ngưỡng này, hệ thống chuyển từ nén nhẹ (chỉ nội dung tra cứu) "
-             "sang nén mạnh hơn (bỏ đoạn lặp, đoạn điểm thấp, rút gọn nội dung).",
-     "low": "Nén sớm hơn: câu lệnh gọn nhưng có thể mất bớt chi tiết.",
-     "high": "Nén muộn hơn: giữ đầy đủ hơn nhưng dễ sát trần ngữ cảnh."},
-    {"name": "context_pressure_hard_limit", "label": "Ngưỡng nén mạnh ngữ cảnh", "step": 0.05,
-     "help": "Vượt ngưỡng này hệ thống nén tối đa: giảm cả tin lịch sử và dùng bản tóm tắt thay tin gốc. Phải lớn hơn ngưỡng cảnh báo.",
-     "low": "Nén tối đa sớm hơn, dễ mất chi tiết hội thoại.",
-     "high": "Nén tối đa muộn hơn, giữ chi tiết lâu hơn nhưng sát trần ngữ cảnh."},
-    {"name": "max_context_tokens", "label": "Tổng ngân sách ngữ cảnh (token)", "step": 500,
-     "help": "Tổng ngân sách token của toàn bộ câu lệnh gửi cho AI (chỉ dẫn, bộ nhớ, tóm tắt, tin gần đây, tài liệu, câu hỏi và chỗ cho câu trả lời). "
-             "Là mốc để tính áp lực ngữ cảnh và phần dành cho tài liệu.",
-     "low": "Nén ngữ cảnh sớm hơn và dành ít chỗ cho tài liệu.",
-     "high": "Chứa được nhiều hơn nhưng tốn chi phí và chậm hơn."},
 ]
+assert tuple(f["name"] for f in ENGINE_FIELDS) == ctx_settings.ADVANCED_FIELDS
+
+# Chế độ Cơ bản: mức nhớ hội thoại (ctx_settings.MEMORY_LEVELS) thay cho 2 ô số recent_*.
+MEMORY_LEVEL_LABELS = {
+    "short": ("Ngắn", "Nhớ vài tin gần nhất: trả lời nhanh, tốn ít chi phí nhưng dễ quên điều vừa nói."),
+    "medium": ("Vừa", "Cân bằng — phù hợp hầu hết cuộc trò chuyện."),
+    "long": ("Dài", "Nhớ nhiều tin hơn để theo sát cuộc trò chuyện dài nhưng tốn chi phí và chậm hơn."),
+    ctx_settings.CUSTOM_MEMORY_LEVEL: ("Đang tùy chỉnh (Nâng cao)", "Giữ nguyên giá trị đã chỉnh ở chế độ Nâng cao."),
+}
 _ENGINE_LABELS = {f["name"]: f["label"] for f in ENGINE_FIELDS}
 
 
@@ -195,20 +172,35 @@ def _parse_number(name: str, raw: str):
 
 
 def parse_engine_form(form) -> tuple[dict | None, str | None]:
-    """Đọc + kiểm tra cấu hình Decision Engine từ form Bước 1: mọi trường số luôn được nhận (không còn giới hạn theo
-    tier), giá trị sai báo lỗi thay vì lặng lẽ ép về khoảng hợp lệ. Trả (giá trị, None) hoặc (None, lỗi) — lỗi thì
-    KHÔNG lưu gì (cả form được lưu hoặc không). Các công tắc bật/tắt tính năng đã cố định (FIXED_TOGGLES), luôn ghi
-    đúng giá trị cố định xuống DB thay vì đọc từ form — DB không còn lưu giá trị khác với giá trị đang thực sự dùng."""
+    """Đọc + kiểm tra cấu hình Decision Engine từ form Bước 1, giá trị sai báo lỗi thay vì lặng lẽ ép về khoảng hợp lệ.
+    Trả (giá trị, None) hoặc (None, lỗi) — lỗi thì KHÔNG lưu gì (cả form được lưu hoặc không). Chỉ nhận thứ chủ bot được
+    chỉnh ở chế độ (config_tier) gửi lên: "basic" -> mức nhớ (memory_level, ghi vào 2 trường recent_*), "advanced" -> các ô số
+    ADVANCED_FIELDS; không gửi config_tier -> chỉ nhận các ô số, không đổi chế độ. Tham số nội bộ RAG/Context Engine
+    (ENGINE_INTERNAL) không bao giờ đọc từ form. Các công tắc bật/tắt tính năng đã cố định (FIXED_TOGGLES), luôn ghi đúng
+    giá trị cố định xuống DB thay vì đọc từ form — DB không còn lưu giá trị khác với giá trị đang thực sự dùng."""
     values: dict = dict(ctx_settings.FIXED_TOGGLES)
 
-    for name in ctx_settings.RANGES:
-        raw = form.get(name)
-        if raw is None or str(raw).strip() == "":
-            continue  # không gửi -> giữ nguyên giá trị đang lưu
-        value, error = _parse_number(name, str(raw).strip())
-        if error:
-            return None, error
-        values[name] = value
+    tier = form.get("config_tier")
+    if tier is not None:
+        if tier not in ctx_settings.CONFIG_TIERS:
+            return None, "Chế độ cấu hình không hợp lệ."
+        values["config_tier"] = tier
+
+    if tier == "basic":
+        level = form.get("memory_level", "")
+        if level in ctx_settings.MEMORY_LEVELS:
+            values["recent_message_limit"], values["recent_token_limit"] = ctx_settings.MEMORY_LEVELS[level]
+        elif level not in ("", ctx_settings.CUSTOM_MEMORY_LEVEL):
+            return None, "Mức nhớ hội thoại không hợp lệ."
+    else:
+        for name in ctx_settings.ADVANCED_FIELDS:
+            raw = form.get(name)
+            if raw is None or str(raw).strip() == "":
+                continue  # không gửi -> giữ nguyên giá trị đang lưu
+            value, error = _parse_number(name, str(raw).strip())
+            if error:
+                return None, error
+            values[name] = value
 
     mode = form.get("low_confidence_reply_mode", "")
     if mode not in ctx_settings.REPLY_MODES:
@@ -219,14 +211,12 @@ def parse_engine_form(form) -> tuple[dict | None, str | None]:
         if len(text) > MAX_LOW_CONFIDENCE_MESSAGE_CHARS:
             return None, f"Câu phản hồi tối đa {MAX_LOW_CONFIDENCE_MESSAGE_CHARS} ký tự."
         values[name] = text or None
-    if values.get("context_pressure_hard_limit", 1) <= values.get("context_pressure_warning", 0):
-        return None, "Ngưỡng nén mạnh phải lớn hơn ngưỡng cảnh báo."
     return values, None
 
 
 def engine_form_context(settings: BotSettings) -> dict:
-    """Dữ liệu cho template Bước 1: giá trị đang lưu (không phải giá trị hiệu lực — người dùng thấy đúng cái đã lưu) và
-    danh sách trường (luôn đầy đủ, không còn phân theo mức cấu hình)."""
+    """Dữ liệu cho template Bước 1: chế độ cấu hình, mức nhớ (chế độ Cơ bản) và các ô số của chế độ Nâng cao — giá trị đang
+    lưu (không phải giá trị hiệu lực — người dùng thấy đúng cái đã lưu)."""
     fields = []
     for spec in ENGINE_FIELDS:
         kind, low, high = ctx_settings.RANGES[spec["name"]]
@@ -237,7 +227,12 @@ def engine_form_context(settings: BotSettings) -> dict:
             "value": default if value is None else value,
             "range_text": f"{low:g}–{high:g}", "default_text": f"{default:g}",  # cho tooltip (?)
         })
+    memory_level = ctx_settings.memory_level_of(settings.recent_message_limit, settings.recent_token_limit)
+    levels = [key for key in ctx_settings.MEMORY_LEVELS] + ([memory_level] if memory_level == ctx_settings.CUSTOM_MEMORY_LEVEL else [])
     return {
+        "tier": ctx_settings.normalize_tier(settings.config_tier),
+        "memory_level": memory_level,
+        "memory_levels": [{"key": key, "label": MEMORY_LEVEL_LABELS[key][0], "help": MEMORY_LEVEL_LABELS[key][1]} for key in levels],
         "fields": fields,
         "reply_modes": ctx_settings.REPLY_MODES,
         "message_max": MAX_LOW_CONFIDENCE_MESSAGE_CHARS,
@@ -245,27 +240,45 @@ def engine_form_context(settings: BotSettings) -> dict:
 
 
 def parse_model_form(form) -> dict:
-    """Ngôn ngữ (None nếu giá trị lạ -> giữ cấu hình cũ), độ sáng tạo và token đầu ra tối đa từ form Bước 1; giá trị sai/thiếu
+    """Ngôn ngữ (None nếu giá trị lạ -> giữ cấu hình cũ) và token đầu ra tối đa từ form Bước 1; giá trị sai/thiếu
     dùng mặc định và số ngoài khoảng bị ép vào khoảng hợp lệ (khác cấu hình engine: các ô này là thanh trượt nên không thể sai)."""
     language = form.get("language", "")
-    try:
-        temperature = max(0.0, min(1.0, float(form.get("temperature", 0.7))))
-    except (TypeError, ValueError):
-        temperature = 0.7
     try:
         max_tokens = max(MAX_TOKENS_MIN, min(MAX_TOKENS_MAX, int(form.get("max_tokens", DEFAULT_MAX_TOKENS))))
     except (TypeError, ValueError):
         max_tokens = DEFAULT_MAX_TOKENS
     return {
         "language": language if language in ctx_prompts.SUPPORTED_LANGUAGES else None,  # giá trị lạ (sửa HTML) thì giữ nguyên cấu hình cũ
-        "temperature": temperature,
         "max_tokens": max_tokens,
     }
 
 
+MAX_SPEED_TEXT_CHARS = 200  # 1 dòng ngắn trong bong bóng chat, không phải đoạn văn
+# 3 công tắc + 4 câu tuỳ chỉnh của mục "Tối ưu tốc độ cảm nhận" (Bước 1) — đúng tên cột BotSettings, xem app/widget/service.py:get_config
+SPEED_TOGGLE_FIELDS = ("speed_progress_enabled", "speed_fillers_enabled", "speed_async_enabled")
+SPEED_TEXT_FIELDS = (
+    "speed_progress_text_analyzing", "speed_progress_text_searching", "speed_progress_text_acting", "speed_progress_text_composing",
+)
+
+
+def parse_speed_form(form) -> tuple[dict, str | None]:
+    """3 công tắc tối ưu tốc độ cảm nhận (mặc định BẬT; checkbox không có trong form = TẮT, đúng ngữ nghĩa HTML checkbox) + 4 câu tuỳ chỉnh dòng
+    tiến trình ("ảo giác lao động"; để trống = câu mặc định theo ngôn ngữ bot). Trả về thông báo lỗi (chưa lưu gì) nếu câu quá dài."""
+    values = {name: form.get(name) == "on" for name in SPEED_TOGGLE_FIELDS}
+    for name in SPEED_TEXT_FIELDS:
+        text = clean_instructions(form.get(name, ""))
+        if len(text) > MAX_SPEED_TEXT_CHARS:
+            return {}, f"Câu hiển thị tối đa {MAX_SPEED_TEXT_CHARS} ký tự."
+        values[name] = text or None
+    return values, None
+
+
 def update_bot_setup(bot: Bot, settings: BotSettings, form: dict) -> str | None:
-    """Lưu Bước 1. Trả về thông báo lỗi (chưa lưu gì) nếu cấu hình Decision Engine không hợp lệ."""
+    """Lưu Bước 1. Trả về thông báo lỗi (chưa lưu gì) nếu cấu hình Decision Engine hoặc tối ưu tốc độ cảm nhận không hợp lệ."""
     engine_values, error = parse_engine_form(form)
+    if error:
+        return error
+    speed_values, error = parse_speed_form(form)
     if error:
         return error
 
@@ -273,16 +286,16 @@ def update_bot_setup(bot: Bot, settings: BotSettings, form: dict) -> str | None:
 
     for name, value in engine_values.items():
         setattr(settings, name, value)
+    for name, value in speed_values.items():
+        setattr(settings, name, value)
     settings.greeting = form.get("greeting", "").strip()
     settings.instructions = clean_instructions(form.get("instructions", ""))
     model = parse_model_form(form)
     if model["language"]:
         settings.language = model["language"]
-    settings.temperature = model["temperature"]
     settings.max_tokens = model["max_tokens"]
-    settings.forward_to_staff = form.get("forward_to_staff") == "on"
+    # forward_to_staff / away_message không còn trên form (chưa có luồng xử lý): không ghi đè cột DB.
     settings.collect_customer_info = form.get("collect_customer_info") == "on"
-    settings.away_message = form.get("away_message", "").strip()
 
     db.session.commit()
     return None
@@ -290,15 +303,14 @@ def update_bot_setup(bot: Bot, settings: BotSettings, form: dict) -> str | None:
 
 def estimate_setup_cost(bot: Bot, settings: BotSettings, form) -> tuple[dict | None, str | None]:
     """Chi phí ước tính (thấp nhất-cao nhất) của 1 câu hỏi theo cấu hình ĐANG CHỌN trên form Bước 1 (chưa cần lưu, không ghi gì).
-    Dùng đúng phép kiểm tra + quy tắc tier như lúc lưu: giá trị sai trả về lỗi giống hệt khi lưu; trường ngoài tier hoặc không gửi
-    thì lấy giá trị đang lưu (rồi EngineSettings.from_model áp mặc định cho trường ngoài tier)."""
+    Dùng đúng phép kiểm tra + quy tắc chế độ như lúc lưu: giá trị sai trả về lỗi giống hệt khi lưu; trường không gửi thì lấy
+    giá trị đang lưu (rồi EngineSettings.from_model áp mặc định cho trường không thuộc chế độ / tham số nội bộ)."""
     engine_values, error = parse_engine_form(form)
     if error:
         return None, error
     model = parse_model_form(form)
-    values = {name: getattr(settings, name, None) for name in (*ctx_settings.DEFAULTS, "language", "instructions")}
+    values = {name: getattr(settings, name, None) for name in (*ctx_settings.DEFAULTS, "language", "instructions", "config_tier")}
     values.update(engine_values)
-    values["temperature"] = model["temperature"]
     values["max_tokens"] = model["max_tokens"]
     if model["language"]:
         values["language"] = model["language"]
@@ -337,7 +349,84 @@ def clean_preview_history(raw) -> list[RecentRow]:
     return rows
 
 
-def preview_reply(bot: Bot, question: str, raw_history) -> dict:
+def make_agent_runner():
+    """AgentRunner khi AI Agent được bật (Config.AGENT_ENABLED), ngược lại None -> engine dùng đúng 1 lệnh gọi DeepSeek như trước.
+    Không tự chuyển về đường cũ khi agent lỗi: lỗi được ném ra để route trả 502 (không che giấu)."""
+    if not Config.AGENT_ENABLED:
+        return None
+    from app.modules import service as modules_service  # import trong hàm: modules.service không được kéo dashboard.service vào vòng import
+
+    runner = agent_runtime.AgentRunner.from_config()
+    runner.action_provider = modules_service.agent_tools_for_bot  # hành động website đã duyệt của bot (Phase M); bot không có module -> danh sách rỗng
+    return runner
+
+
+def _record_agent_execution(bot: Bot, conversation: Conversation | None, info: dict, message: Message | None = None,
+                            error: str | None = None) -> AgentExecution:
+    """1 dòng agent_executions cho lượt (kể cả lượt lỗi/hết giờ). Đã flush (có id). Không commit: người gọi commit."""
+    def moment(epoch):
+        return datetime.utcfromtimestamp(epoch) if epoch else None
+
+    execution = AgentExecution(
+        job_id=info["execution_id"], bot_id=bot.id, conversation_id=conversation.id if conversation is not None else None,
+        message_id=message.id if message is not None else None, started_at=moment(info["started_at"]) or datetime.utcnow(),
+        finished_at=moment(info.get("finished_at")), status=info["status"], iterations_used=info.get("iterations_used", 0),
+        tool_calls_used=info.get("tool_calls_used", 0), total_llm_calls=info.get("total_llm_calls", 0),
+        stop_reason=(info.get("stop_reason") or "")[:100] or None, error_message=error or info.get("error"),
+    )
+    db.session.add(execution)
+    db.session.flush()
+    return execution
+
+
+# ---- AI Credit (Phase D): giữ chỗ trước, quyết toán sau mỗi lượt chạy agent ----
+
+def _begin_credit_gate(bot: Bot, settings: ctx_settings.EngineSettings) -> "credits_service.Reservation | credits_service.Blocked":
+    """Ước tính chi phí CAO NHẤT của lượt (cùng công thức ô "Chi phí ước tính" ở Bước 1) rồi vào cổng Credit: chặn nếu vượt trần chi phí/lượt của
+    bot hoặc số dư của team không đủ giữ chỗ."""
+    row = get_or_create_settings(bot)
+    estimate = ctx_execution_cost.estimate_reserve_vnd(
+        settings, chunk_size=row.chunk_size, intents=ctx_state.load_intents(bot.id),
+        max_question_tokens=ctx_cost.question_tokens_for_chars(MAX_MESSAGE_CHARS), max_iterations=Config.AGENT_MAX_ITERATIONS,
+        markup=Config.PLATFORM_MARKUP_MULTIPLIER, infra_cost=Config.INFRA_COST_PER_EXECUTION_VND,
+    )
+    return credits_service.begin_execution(bot.team_id, estimate_vnd=estimate, limit_vnd=row.max_cost_per_execution_vnd)
+
+
+def _store_blocked_reply(bot: Bot, conversation: Conversation, blocked: "credits_service.Blocked") -> Message:
+    """Lượt bị cổng Credit chặn: agent KHÔNG chạy (không có dòng agent_executions, không phí). Bot trả câu từ chối để khách không bị im lặng."""
+    if blocked.reason == credits_service.BLOCK_MAX_COST:
+        text = Config.DEFAULT_MAX_COST_MESSAGE
+    else:
+        text = credits_service.out_of_credit_message(get_or_create_settings(bot))
+    message = Message(
+        conversation_id=conversation.id, sender="bot", content=text,
+        decision_trace={"decision": "decline", "reasons": [blocked.reason], "credit_gate": {
+            "estimate_vnd": float(blocked.estimate_vnd),
+            "limit_vnd": None if blocked.limit_vnd is None else float(blocked.limit_vnd),
+        }},
+    )
+    db.session.add(message)
+    db.session.commit()
+    return message
+
+
+def _settle_credit(bot: Bot, reservation: "credits_service.Reservation", execution: AgentExecution, calls: list[dict]) -> None:
+    """Giá vốn thực (usage THẬT của mọi lệnh gọi trong lượt) -> giá bán -> hoàn giữ chỗ + trừ Credit + ghi execution_costs. Không commit."""
+    llm = ctx_execution_cost.llm_cost(calls, execution.started_at)
+    price = ctx_execution_cost.price_execution(llm, markup=Config.PLATFORM_MARKUP_MULTIPLIER, infra_cost=Config.INFRA_COST_PER_EXECUTION_VND)
+    credits_service.settle(reservation, execution_id=execution.id, bot_id=bot.id, llm=llm, price=price)
+
+
+def _agent_runner_with_progress(on_progress):
+    """make_agent_runner() kèm callback tiến trình thật của lượt (on_progress(code) — mã protocol.PROGRESS_*). None nếu agent đang tắt."""
+    runner = make_agent_runner()
+    if runner is not None:
+        runner.progress_sink = on_progress
+    return runner
+
+
+def preview_reply(bot: Bot, question: str, raw_history, on_progress=None) -> dict:
     """Khung chat thử ở Bước 1: cùng luồng quyết định như widget thật nhưng KHÔNG lưu hội thoại/trạng thái/bộ nhớ (không lẫn
     vào Lịch sử chat). Vì không có trạng thái lưu nên số lượt hỏi làm rõ liên tiếp luôn bắt đầu từ 0 và không có
     Historical Retrieval."""
@@ -350,15 +439,53 @@ def preview_reply(bot: Bot, question: str, raw_history) -> dict:
         intents=ctx_state.load_intents(bot.id),
         recent_rows=clean_preview_history(raw_history),
         conversation_id=None,
-    ))
+    ), agent_runner=_agent_runner_with_progress(on_progress))
     return {"reply": result.reply, "decision": result.decision.value}
 
 
-def reply_to_customer(bot: Bot, conversation: Conversation, customer_message: Message) -> Message:
+PREVIEW_ERROR_TEXT = "Không lấy được câu trả lời. Kiểm tra DEEPSEEK_API_KEY và các dịch vụ ChromaDB."
+
+
+def preview_turn_owner(bot_id: int, user_id: int) -> str:
+    return f"preview:{bot_id}:{user_id}"
+
+
+def start_preview_turn(bot: Bot, question: str, raw_history, user_id: int) -> str:
+    """Khung xem trước dùng cùng cơ chế bất đồng bộ như widget thật (tiến trình thật + trả lời khi xong): giao lượt cho tác vụ nền, trả mã lượt.
+    Chủ của lượt = (bot, người dùng đăng nhập): người khác không đọc được. Vẫn KHÔNG lưu hội thoại (preview_reply)."""
+    turn_id = turns.new_id()
+    turns.start(turn_id, preview_turn_owner(bot.id, user_id))
+    turns.progress(turn_id, "analyzing")
+    socketio.start_background_task(_run_preview_turn, current_app._get_current_object(), bot.id, question, raw_history, turn_id)
+    return turn_id
+
+
+def _run_preview_turn(app, bot_id: int, question: str, raw_history, turn_id: str) -> None:
+    with app.app_context():
+        try:
+            reply = preview_reply(db.session.get(Bot, bot_id), question, raw_history, on_progress=lambda code: turns.progress(turn_id, code))["reply"]
+            turns.finish_reply(turn_id, reply, None)
+        except Exception:
+            # Ranh giới tác vụ nền: không còn request để trả 502 -> log đầy đủ rồi báo lỗi cho khung xem trước (không có câu trả lời giả)
+            logger.exception("preview-chat bất đồng bộ lỗi (turn=%s bot_id=%s)", turn_id, bot_id)
+            db.session.rollback()
+            turns.finish_error(turn_id, PREVIEW_ERROR_TEXT)
+
+
+def reply_to_customer(bot: Bot, conversation: Conversation, customer_message: Message, on_progress=None) -> Message:
     """Luồng 1 lượt trả lời khách của widget (Bước A-E). customer_message đã được lưu + commit từ trước (nếu LLM lỗi thì
     tin khách vẫn còn). Trả về tin bot đã lưu (kèm decision_trace + usage). Lỗi LLM/Chroma được ném nguyên để route trả
     502; khi đó chưa ghi gì của lượt này (state/memory/tin bot) — chỉ ghi khi đã có câu trả lời."""
     settings = ctx_settings.EngineSettings.from_model(get_or_create_settings(bot))
+    # Cổng Credit chạy TRƯỚC mọi thao tác ghi dở của lượt (trạng thái hội thoại tạo lười...): giữ chỗ commit ngay nên nếu để sau, phần ghi dở
+    # sẽ bị commit theo và không còn "bỏ được" khi lượt lỗi.
+    agent_runner = _agent_runner_with_progress(on_progress)
+    reservation = None
+    if agent_runner is not None:  # Credit chỉ áp dụng cho lượt chạy agent (1 Execution = 1 dòng agent_executions)
+        gate = _begin_credit_gate(bot, settings)
+        if isinstance(gate, credits_service.Blocked):
+            return _store_blocked_reply(bot, conversation, gate)
+        reservation = gate
     state_row = ctx_state.get_or_create_state(conversation)
     snapshot = ctx_state.load_snapshot(state_row, settings)
     recent = ctx_state.fetch_recent_messages(
@@ -367,37 +494,70 @@ def reply_to_customer(bot: Bot, conversation: Conversation, customer_message: Me
         after_message_id=snapshot.last_summarized_message_id if settings.summary_enabled else None,  # đã tóm tắt thì không lặp lại nguyên văn
         limit=settings.recent_message_limit,
     )
-    result = ctx_engine.run_turn(ctx_engine.TurnRequest(
-        bot_id=bot.id,
-        question=customer_message.content,
-        settings=settings,
-        snapshot=snapshot,
-        intents=ctx_state.load_intents(bot.id),
-        recent_rows=[RecentRow(m.id, m.sender, m.content) for m in recent],
-        conversation_id=conversation.id,
-    ))
+    try:
+        result = ctx_engine.run_turn(ctx_engine.TurnRequest(
+            bot_id=bot.id,
+            question=attachments_service.question_for(customer_message, settings.language),
+            settings=settings,
+            snapshot=snapshot,
+            intents=ctx_state.load_intents(bot.id),
+            recent_rows=[RecentRow(m.id, m.sender, m.content) for m in recent],
+            conversation_id=conversation.id,
+            attachments=attachments_service.for_conversation(bot, conversation),  # tệp khách đã gửi (module "Đọc tài liệu"); rỗng nếu không có/module đã gỡ
+        ), agent_runner=agent_runner)
+    except agent_runtime.AgentRunError as exc:
+        # Lượt agent lỗi/hết giờ: bỏ phần ghi dở của lượt (state tạo lười), nhưng VẪN lưu dòng agent_executions để có số liệu vận hành
+        # và VẪN quyết toán phần đã tốn (usage đã đo) cùng transaction — phần giữ chỗ còn dư được hoàn.
+        db.session.rollback()
+        execution = _record_agent_execution(bot, conversation, exc.info, error=str(exc))
+        _settle_credit(bot, reservation, execution, exc.info.get("usage_calls") or [])
+        db.session.commit()
+        raise
+    except BaseException:
+        # Agent chưa chạy được (worker chưa bật, Redis lỗi...) hoặc lỗi khác trước khi có kết quả: không có gì để tính phí -> hoàn đủ giữ chỗ
+        db.session.rollback()
+        if reservation is not None:
+            credits_service.release_unused(reservation)
+            db.session.commit()
+        raise
 
-    # ---- Bước D: ghi ----
-    usage = result.usage
-    bot_message = Message(
-        conversation_id=conversation.id,
-        sender="bot",
-        content=result.reply,
-        decision_trace=result.trace,
-        usage_prompt_tokens=usage.prompt_tokens,
-        usage_completion_tokens=usage.completion_tokens,
-        usage_cache_hit_tokens=usage.cache_hit_tokens,
-        usage_cache_miss_tokens=usage.cache_miss_tokens,
-    )
-    db.session.add(bot_message)
-    db.session.flush()
-    ctx_state.save_state_update(state_row, result.state_update)
-    if settings.structured_memory_enabled:
-        ctx_state.store_memory(bot.id, conversation.id, result.output.memory_updates, settings, customer_message.id)
-    # ---- Bước E: chỉ đặt cờ (đếm token, không gọi LLM); worker nền tóm tắt ----
-    ctx_state.maybe_request_summary(state_row, settings)
-    db.session.commit()
-    return bot_message
+    try:
+        # ---- Bước D: ghi ----
+        usage = result.usage
+        bot_message = Message(
+            conversation_id=conversation.id,
+            sender="bot",
+            content=result.reply,
+            decision_trace=result.trace,
+            usage_prompt_tokens=usage.prompt_tokens,
+            usage_completion_tokens=usage.completion_tokens,
+            usage_cache_hit_tokens=usage.cache_hit_tokens,
+            usage_cache_miss_tokens=usage.cache_miss_tokens,
+        )
+        db.session.add(bot_message)
+        db.session.flush()
+        if result.agent is not None:
+            execution = _record_agent_execution(bot, conversation, result.agent, message=bot_message)
+            if reservation is not None:
+                _settle_credit(bot, reservation, execution, [{"kind": "main", **usage.as_dict()}, *result.extra_calls])
+        ctx_state.save_state_update(state_row, result.state_update)
+        # Slot liên hệ (contact_name/phone/email) AI đã điền -> ghi thẳng vào Customer (cùng tùy chọn "thu thập thông tin khách"
+        # với việc bắt số điện thoại/email trong tin nhắn ở widget/service.receive_message)
+        if get_or_create_settings(bot).collect_customer_info:
+            customers_service.capture_contact_from_slots(bot.team_id, conversation, result.state_update.slots)
+        if settings.structured_memory_enabled:
+            ctx_state.store_memory(bot.id, conversation.id, result.output.memory_updates, settings, customer_message.id)
+        # ---- Bước E: chỉ đặt cờ (đếm token, không gọi LLM); worker nền tóm tắt ----
+        ctx_state.maybe_request_summary(state_row, settings)
+        db.session.commit()
+        return bot_message
+    except BaseException:
+        # Lỗi khi ghi kết quả (agent đã chạy xong nhưng chưa quyết toán được): hoàn giữ chỗ để không kẹt Credit của team
+        db.session.rollback()
+        if reservation is not None:
+            credits_service.release_unused(reservation, note="Lỗi ghi kết quả lượt: hoàn giữ chỗ")
+            db.session.commit()
+        raise
 
 
 def default_greeting(language: str) -> str:
@@ -406,9 +566,30 @@ def default_greeting(language: str) -> str:
 
 # ---- Bước 3: Xuất bản ----
 
-def update_widget_domain(settings: BotSettings, domain: str) -> None:
-    settings.widget_domain = domain.strip()
+def add_widget_domain(bot: Bot, raw: str) -> str | None:
+    """Thêm 1 domain được phép nhúng widget (chuẩn hóa: 'https://www.Shop.vn/abc' -> 'shop.vn'). Trả về thông báo lỗi nếu
+    không hợp lệ/trùng/vượt giới hạn, None nếu thành công. Subdomain của domain đã có tự động được phép nên không cần thêm."""
+    domain = widget_domains.normalize_domain(raw)
+    if not widget_domains.is_valid_domain(domain):
+        return "Domain không hợp lệ. Nhập tên miền như shopabc.vn (không kèm đường dẫn)."
+    existing = [d.domain for d in bot.domains]
+    if domain in existing:
+        return f"Domain {domain} đã có trong danh sách."
+    if len(existing) >= widget_domains.MAX_DOMAINS_PER_BOT:
+        return f"Tối đa {widget_domains.MAX_DOMAINS_PER_BOT} domain cho mỗi trợ lý."
+    db.session.add(BotDomain(bot_id=bot.id, domain=domain))
     db.session.commit()
+    return None
+
+
+def remove_widget_domain(bot: Bot, domain_id: int) -> bool:
+    """Xóa 1 domain của bot; chỉ xóa được domain thuộc đúng bot này (không đoán id để xóa domain của bot khác)."""
+    row = BotDomain.query.filter_by(id=domain_id, bot_id=bot.id).first()
+    if row is None:
+        return False
+    db.session.delete(row)
+    db.session.commit()
+    return True
 
 
 def update_widget_appearance(settings: BotSettings, form: dict) -> str | None:
@@ -476,12 +657,24 @@ def update_widget_icon(bot: Bot, settings: BotSettings, file_storage) -> str | N
     return None
 
 
-# ---- Bước 4: Lịch sử chat ----
+# ---- Lịch sử chat (mục theo dõi riêng, ngoài luồng 3 bước tạo bot) ----
 
-def list_conversations(bot_id: int, search: str = "", channel: str = "") -> list[Conversation]:
+DECISION_LABELS = {"answer": "Trả lời", "clarify": "Hỏi lại", "decline": "Từ chối"}
+
+
+def _decision_of_bot_messages():
+    """Cột "decision" của decision_trace (JSON) — chỉ tin bot do Decision Engine tạo mới có."""
+    return Message.decision_trace["decision"].as_string()
+
+
+def list_conversations(bot_id: int, search: str = "", channel: str = "", decision: str = "") -> list[Conversation]:
+    """decision (answer|clarify|decline): chỉ giữ hội thoại có ÍT NHẤT 1 tin bot mang quyết định đó; giá trị khác bị bỏ qua."""
     query = Conversation.query.filter_by(bot_id=bot_id)
     if channel:
         query = query.filter(Conversation.channel == channel)
+    if decision in DECISION_LABELS:
+        matching = db.session.query(Message.conversation_id).filter(Message.sender == "bot", _decision_of_bot_messages() == decision)
+        query = query.filter(Conversation.id.in_(matching))
     conversations = query.order_by(Conversation.created_at.desc()).limit(200).all()
 
     if search:
@@ -495,6 +688,75 @@ def list_conversations(bot_id: int, search: str = "", channel: str = "") -> list
         conversations = [c for c in conversations if matches(c)]
 
     return conversations
+
+
+def decision_stats(bot_id: int, days: int = STATS_WINDOW_DAYS) -> dict:
+    """Tỉ lệ ANSWER/CLARIFY/DECLINE của các tin bot trong `days` ngày gần nhất: {"total", "days", "rows": [{decision, label,
+    count, percent}]} — mọi quyết định đều có mặt (count 0 nếu chưa có) để giao diện không đổi bố cục. Tin cũ không có
+    decision_trace không tính."""
+    since = datetime.utcnow() - timedelta(days=days)
+    decision = _decision_of_bot_messages()
+    counts = dict(
+        db.session.query(decision, db.func.count(Message.id))
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(Conversation.bot_id == bot_id, Message.sender == "bot", Message.created_at >= since)
+        .group_by(decision)
+        .all()
+    )
+    total = sum(counts.get(key, 0) for key in DECISION_LABELS)
+    rows = [
+        {"decision": key, "label": label, "count": counts.get(key, 0), "percent": round(100 * counts.get(key, 0) / total) if total else 0}
+        for key, label in DECISION_LABELS.items()
+    ]
+    return {"total": total, "days": days, "rows": rows}
+
+
+# Diễn giải lý do (decision_trace["reasons"]) sang tiếng Việt — chỉ dịch các mã engine THỰC SỰ ghi (core/context_engine/decision.py,
+# engine.py); mã lạ hiện nguyên văn để không bịa lý do ngoài dữ liệu đã lưu.
+_REASON_TEXT = {
+    "no_relevant_context": "không tìm thấy tài liệu liên quan",
+    "context_exceeds_budget": "nội dung liên quan quá nhiều, cần khách thu hẹp phạm vi",
+    "low_intent_confidence": "độ tin cậy nhận diện ý định thấp",
+    "missing_required_slots": "còn thiếu thông tin bắt buộc từ khách",
+    "too_many_relevant_candidates": "nhiều nội dung liên quan ngang nhau",
+    "empty_proposed_answer": "AI chưa đủ thông tin để trả lời",
+    "context_budget_exhausted": "ngân sách ngữ cảnh đã hết nên không đưa được tài liệu nào cho AI",
+    "clarification_disabled": "hỏi làm rõ đang tắt",
+}
+_NOTE_TEXT = {"context_compressed": "ngữ cảnh đã bị nén", "ambiguous_reference": "câu hỏi có từ chỉ định mơ hồ"}
+_DECISION_VERB = {"answer": "Trả lời", "clarify": "Hỏi lại", "decline": "Từ chối trả lời"}
+
+
+def explain_decision(trace) -> dict | None:
+    """decision_trace của 1 tin bot -> {"decision", "text"} để hiện thành nhãn cạnh tin; None nếu tin không có trace (tin khách,
+    nhân viên, tin cũ). Số liệu trong ngoặc lấy từ chính trace (candidate_count, intent_confidence, slot_completion)."""
+    if not isinstance(trace, dict) or trace.get("decision") not in _DECISION_VERB:
+        return None
+    decision = trace["decision"]
+    reasons = [r for r in (trace.get("reasons") or []) if isinstance(r, str)]
+    explained = [_REASON_TEXT.get(r, r) for r in reasons if r not in _NOTE_TEXT]
+    notes = [_NOTE_TEXT[r] for r in reasons if r in _NOTE_TEXT]
+
+    details = []
+    if "no_relevant_context" in reasons and trace.get("candidate_count") is not None:
+        details.append(f"candidate_count={trace['candidate_count']}")
+    if "low_intent_confidence" in reasons and trace.get("intent_confidence") is not None:
+        details.append(f"intent_confidence={trace['intent_confidence']}")
+    if "missing_required_slots" in reasons and trace.get("slot_completion") is not None:
+        details.append(f"slot_completion={trace['slot_completion']}")
+    if "too_many_relevant_candidates" in reasons and trace.get("candidate_count") is not None:
+        details.append(f"candidate_count={trace['candidate_count']}")
+
+    text = _DECISION_VERB[decision]
+    if explained:
+        text += " — " + "; ".join(explained)
+    elif decision == "answer" and trace.get("candidate_count"):
+        text += f" — dựa trên {trace['candidate_count']} nguồn tài liệu liên quan"
+    if details:
+        text += f" ({', '.join(details)})"
+    if notes:
+        text += f" · {'; '.join(notes)}"
+    return {"decision": decision, "text": text}
 
 
 def get_conversation_for_bot(conversation_id: int, bot_id: int) -> Conversation | None:
@@ -573,8 +835,8 @@ def filesize(value, decimals: int = 1) -> str:
 
 
 # Tin nhắn hiển thị cho người (Lịch sử chat, Inbox, widget) chỉ được phép in đậm (**...**), mã (`...`) và
-# bảng markdown kiểu GFM — xem cùng quy tắc ở app/widget/embed.js:renderRichText() và
-# app/static/js/inbox.js:renderRichText() (3 nơi phải nhận diện bảng giống hệt nhau).
+# bảng markdown kiểu GFM và danh sách "**Tên** — mô tả" (dựng box) — xem cùng quy tắc ở app/widget/embed.js:
+# renderRichText() và app/static/js/inbox.js:renderRichText() (3 nơi phải nhận diện giống hệt nhau).
 _RICH_TEXT_RE = re.compile(r"\*\*([^\n]+?)\*\*|`([^\n]+?)`")
 _TABLE_DELIMITER_CELL_RE = re.compile(r":?-+:?")
 
@@ -630,6 +892,39 @@ def _parse_table_delimiter(line: str) -> list[str] | None:
     return align or None
 
 
+# Danh sách sản phẩm/dịch vụ: từ 2 dòng "**Tên** — mô tả" liền nhau (có thể có gạch đầu dòng/số thứ tự, cho phép dòng trống
+# giữa các mục) -> mỗi mục 1 box. Chỉ nhận dấu gạch dài (— –) hoặc " - " có khoảng trắng hai bên; dấu ":" không nhận để cặp
+# "**Địa chỉ**: ..." không bị dựng nhầm thành box. Giống hệt ITEM_LINE_RE trong app/widget/embed.js và inbox.js.
+_ITEM_LINE_RE = re.compile(r"^\s*(?:[-*•]\s+|\d+[.)]\s+)?\*\*([^\n]+?)\*\*(?:\s*[—–]\s*|\s+-\s+)(\S.*)$")
+
+
+def _parse_item_run(lines: list[str], start: int) -> tuple[list[tuple[str, str]], int] | None:
+    """Dãy mục bắt đầu ở `start` -> ([(tên, mô tả)], vị trí dòng kế tiếp), hoặc None nếu chưa đủ 2 mục."""
+    items: list[tuple[str, str]] = []
+    i = nxt = start
+    while i < len(lines):
+        m = _ITEM_LINE_RE.match(lines[i])
+        if m:
+            items.append((m.group(1).strip(), m.group(2).strip()))
+            i += 1
+            nxt = i
+        elif not lines[i].strip():
+            i += 1
+        else:
+            break
+    return (items, nxt) if len(items) >= 2 else None
+
+
+def _render_items(items: list[tuple[str, str]]) -> str:
+    """Không có khoảng trắng/xuống dòng giữa các thẻ vì khung tin nhắn dùng white-space:pre-wrap."""
+    cards = "".join(
+        f'<div class="msg-item"><div class="msg-item-name">{_inline(str(escape(name)))}</div>'
+        f'<div class="msg-item-desc">{_inline(str(escape(desc)))}</div></div>'
+        for name, desc in items
+    )
+    return f'<div class="msg-items">{cards}</div>'
+
+
 def _render_table(head: list[str], align: list[str], rows: list[list[str]]) -> str:
     """Không có khoảng trắng/xuống dòng giữa các thẻ vì khung tin nhắn dùng white-space:pre-wrap."""
 
@@ -642,14 +937,30 @@ def _render_table(head: list[str], align: list[str], rows: list[list[str]]) -> s
     return f'<div class="msg-tbl"><table><thead><tr>{header}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
+def _parse_table_run(lines: list[str], start: int) -> tuple[list[str], list[str], list[list[str]], int] | None:
+    """Bảng markdown bắt đầu ở dòng `start` -> (tiêu đề, căn lề, các hàng, chỉ số dòng kế tiếp); None nếu không phải bảng
+    (thiếu hàng phân cách ---, hoặc khác số cột với hàng tiêu đề)."""
+    align = _parse_table_delimiter(lines[start + 1]) if start + 1 < len(lines) and "|" in lines[start] else None
+    head = _split_table_row(lines[start]) if align else None
+    if not head or len(head) != len(align):
+        return None
+    rows: list[list[str]] = []
+    i = start + 2
+    while i < len(lines) and lines[i].strip() and "|" in lines[i]:
+        cells = _split_table_row(lines[i])[: len(head)]
+        rows.append(cells + [""] * (len(head) - len(cells)))
+        i += 1
+    return head, align, rows, i
+
+
 def format_message(text: str | None) -> Markup:
-    """{{ m.content|format_message }}: escape TOÀN BỘ nội dung trước, chỉ sau đó mới chèn <strong>/<code>/<table>... —
+    """{{ m.content|format_message }}: escape TOÀN BỘ nội dung trước, chỉ sau đó mới chèn <strong>/<code>/<table>/<div>... —
     thẻ do chính hàm này thêm, không lấy từ nội dung gốc, nên an toàn XSS dù AI/khách gõ gì (kể cả "<script>").
 
     Bảng chỉ được nhận diện khi có đủ hàng tiêu đề + hàng phân cách (---) cùng số cột; một dòng có dấu "|" bất
     kỳ vẫn là văn bản thường."""
     lines = (text or "").split("\n")
-    parts: list[str] = []  # văn bản thô (chưa escape) hoặc HTML bảng đã dựng; kinds[i] cho biết là loại nào
+    parts: list[str] = []  # văn bản thô (chưa escape) hoặc HTML bảng/box đã dựng; kinds[i] = "text" | "html"
     kinds: list[str] = []
     buf: list[str] = []
 
@@ -661,18 +972,19 @@ def format_message(text: str | None) -> Markup:
 
     i = 0
     while i < len(lines):
-        align = _parse_table_delimiter(lines[i + 1]) if i + 1 < len(lines) and "|" in lines[i] else None
-        head = _split_table_row(lines[i]) if align else None
-        if head and len(head) == len(align):
+        run = _parse_item_run(lines, i) if _ITEM_LINE_RE.match(lines[i]) else None
+        if run:
             flush()
-            rows: list[list[str]] = []
-            i += 2
-            while i < len(lines) and lines[i].strip() and "|" in lines[i]:
-                cells = _split_table_row(lines[i])[: len(head)]
-                rows.append(cells + [""] * (len(head) - len(cells)))
-                i += 1
+            items, i = run
+            parts.append(_render_items(items))
+            kinds.append("html")
+            continue
+        table = _parse_table_run(lines, i)
+        if table:
+            flush()
+            head, align, rows, i = table
             parts.append(_render_table(head, align, rows))
-            kinds.append("table")
+            kinds.append("html")
         else:
             buf.append(lines[i])
             i += 1
@@ -680,7 +992,7 @@ def format_message(text: str | None) -> Markup:
 
     out: list[str] = []
     for idx, (part, kind) in enumerate(zip(parts, kinds)):
-        if kind == "table":
+        if kind == "html":
             out.append(part)
             continue
         # Xuống dòng sát bảng do khối bảng tự tạo khoảng cách nên bỏ đi, tránh dòng trống thừa.
@@ -690,6 +1002,75 @@ def format_message(text: str | None) -> Markup:
             part = part.rstrip("\n")
         out.append(_inline(str(escape(part))))
     return Markup("".join(out))
+
+
+_LIST_LINE_RE = re.compile(r"^\s*(?:[-*•]\s+|\d+[.)]\s+)\S")  # mục danh sách thường (đánh số / gạch đầu dòng); giống LIST_LINE_RE trong embed.js, inbox.js
+
+
+def _split_text_parts(text: str) -> list[str]:
+    """Tách 1 khối chữ thành các phần, mỗi phần 1 tin: mỗi ĐOẠN (ngăn cách bằng dòng trống) 1 phần, mỗi MỤC danh sách 1 phần riêng. Dòng thụt vào ngay
+    sau 1 mục là phần tiếp của mục đó; dòng không thụt sau mục (không phải mục mới) mở đoạn mới. Giống hệt splitText() trong embed.js và inbox.js."""
+    parts: list[str] = []
+    para: list[str] = []
+    in_item = False
+
+    def flush() -> None:
+        chunk = "\n".join(para).strip()
+        if chunk:
+            parts.append(chunk)
+        para.clear()
+
+    for line in text.split("\n"):
+        if not line.strip():
+            flush()
+            in_item = False
+            continue
+        if _LIST_LINE_RE.match(line):
+            flush()
+            in_item = True
+        elif in_item and not line[0].isspace():
+            flush()
+            in_item = False
+        para.append(line)
+    flush()
+    return parts
+
+
+def message_segments(text: str | None) -> list[Markup]:
+    """Tin dài của bot -> nhiều tin riêng như khách thấy ở widget: mỗi đoạn, mỗi mục danh sách (đánh số / gạch đầu dòng), mỗi mục
+    "**Tên** — mô tả" và mỗi bảng là 1 tin, thay vì dồn cả đoạn dài vào 1 box. Chỉ có 1 phần -> đúng 1 phần tử = format_message(text).
+    Cùng quy tắc với splitSegments() trong app/widget/embed.js và app/static/js/inbox.js."""
+    lines = (text or "").split("\n")
+    segments: list[Markup] = []
+    buf: list[str] = []
+
+    def flush() -> None:
+        for part in _split_text_parts("\n".join(buf)):
+            segments.append(format_message(part))
+        buf.clear()
+
+    i = 0
+    while i < len(lines):
+        run = _parse_item_run(lines, i) if _ITEM_LINE_RE.match(lines[i]) else None
+        if run:
+            flush()
+            items, i = run
+            for name, desc in items:
+                segments.append(Markup(
+                    f'<div class="msg-item-name">{_inline(str(escape(name)))}</div>'
+                    f'<div class="msg-item-desc">{_inline(str(escape(desc)))}</div>'
+                ))
+            continue
+        table = _parse_table_run(lines, i)
+        if table:
+            flush()
+            head, align, rows, i = table
+            segments.append(Markup(_render_table(head, align, rows)))
+            continue
+        buf.append(lines[i])
+        i += 1
+    flush()
+    return segments if len(segments) > 1 else [format_message(text)]
 
 
 def list_documents(bot_id: int, search: str = "", ext: str = "") -> list[Document]:
@@ -837,8 +1218,10 @@ def process_document(bot: Bot, document: Document, raw: bytes, on_progress=None)
         count = rag_engine.upsert_chunks(bot.id, document.id, chunks, on_progress)
     except Exception as e:
         db.session.rollback()
+        agent_cache.bump_for_bot(bot.id)  # có thể đã ghi được 1 phần chunk trước khi lỗi
         mark_failed(document, failure_message(e))
         raise
+    agent_cache.bump_for_bot(bot.id)  # tài liệu mới có hiệu lực: kết quả tra cứu đã cache của bot không còn đúng
     document.status = "trained"
     document.chunk_count = count
     db.session.commit()
@@ -882,6 +1265,7 @@ def status_snapshot(bot_id: int) -> list[dict]:
 
 def delete_document(bot: Bot, document: Document) -> None:
     rag_engine.delete_document(bot.id, document.id)
+    agent_cache.bump_for_bot(bot.id)
     try:
         storage_service.delete_file(document.storage_path)
     except Exception:

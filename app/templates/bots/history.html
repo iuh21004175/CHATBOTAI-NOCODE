@@ -15,6 +15,18 @@
 .msg-tbl table{border-collapse:collapse;font-size:12.5px;line-height:1.4;white-space:normal;}
 .msg-tbl th,.msg-tbl td{border:1px solid rgba(127,127,127,.35);padding:5px 9px;text-align:left;vertical-align:top;}
 .msg-tbl th{background:rgba(127,127,127,.14);font-weight:700;}
+.msg-items{display:flex;flex-direction:column;gap:6px;margin:6px 0;white-space:normal;}
+.msg-items:first-child{margin-top:0;}
+.msg-items:last-child{margin-bottom:0;}
+.msg-item{border:1px solid rgba(127,127,127,.35);border-radius:10px;padding:7px 10px;background:rgba(127,127,127,.08);}
+.msg-item-name{font-weight:700;}
+.msg-item-desc{margin-top:2px;line-height:1.45;}
+.dtag{display:inline-block;margin-top:6px;font-size:11px;font-weight:600;line-height:1.4;padding:3px 8px;border-radius:8px;white-space:normal;}
+.dtag.answer{background:var(--green-bg);color:var(--green-text);}
+.dtag.clarify{background:#FEF3C7;color:#92400E;}
+.dtag.decline{background:#FEE2E2;color:#B91C1C;}
+.dstats{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:12.5px;color:var(--text-soft);}
+.dstats a{text-decoration:none;}
 </style>
 {% endblock %}
 {% block main %}
@@ -25,23 +37,43 @@
       <option value="" {{ "selected" if not channel else "" }}>Tất cả kênh</option>
       <option value="web_widget" {{ "selected" if channel == "web_widget" else "" }}>Web Widget</option>
     </select>
+    <select class="field" name="decision" onchange="this.form.submit()" title="Chỉ hiện hội thoại có ít nhất 1 tin bot mang quyết định này">
+      <option value="" {{ "selected" if not decision else "" }}>Mọi quyết định của bot</option>
+      {% for key, label in decision_labels.items() %}
+        <option value="{{ key }}" {{ "selected" if decision == key else "" }}>{{ label }}</option>
+      {% endfor %}
+    </select>
     <button class="btns" type="submit">Lọc</button>
     <div style="flex-grow:1;"></div>
     <span style="font-size:12.5px;color:var(--text-soft);">{{ conversations|length }} phiên hội thoại</span>
   </form>
 
+  {% if decision_stats.total %}
+  <div class="dstats">
+    <span>{{ decision_stats.days }} ngày gần nhất ({{ decision_stats.total }} câu trả lời của bot):</span>
+    {% for row in decision_stats.rows %}
+      <a class="dtag {{ row.decision }}" style="margin-top:0;" href="{{ url_for('dashboard.bot_history', bot_id=bot.id, decision=row.decision, q=search, channel=channel) }}">{{ row.label }} {{ row.percent }}% ({{ row.count }})</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="chat-history-wrap">
     {% if not conversations %}
       <div style="flex-grow:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:40px;text-align:center;">
         <div style="font-size:32px;">💬</div>
+        {% if search or channel or decision %}
+        <div style="font-size:15px;font-weight:700;">Không có hội thoại khớp bộ lọc</div>
+        <div style="font-size:13px;color:var(--text-soft);max-width:360px;">Thử bỏ bớt điều kiện lọc để xem lại các hội thoại khác.</div>
+        {% else %}
         <div style="font-size:15px;font-weight:700;">Chưa có hội thoại nào</div>
         <div style="font-size:13px;color:var(--text-soft);max-width:360px;">Hội thoại từ Web Widget sẽ xuất hiện ở đây khi khách bắt đầu chat với trợ lý.</div>
+        {% endif %}
       </div>
     {% else %}
       <div class="convlist">
         {% for c in conversations %}
           {% set name = display_name(c) %}
-          <a class="convrow {{ 'sel' if selected and c.id == selected.id else '' }}" href="{{ url_for('dashboard.bot_history', bot_id=bot.id, conversation_id=c.id, q=search, channel=channel) }}">
+          <a class="convrow {{ 'sel' if selected and c.id == selected.id else '' }}" href="{{ url_for('dashboard.bot_history', bot_id=bot.id, conversation_id=c.id, q=search, channel=channel, decision=decision) }}">
             <div class="convrow-avatar" style="background:{{ ['#F59E0B','#8B5CF6','#EF4444','#0EA5E9','#16A34A'][c.id % 5] }};">{{ name[:2]|upper }}</div>
             <div style="flex-grow:1;min-width:0;">
               <div style="display:flex;justify-content:space-between;"><span style="font-size:13.5px;font-weight:700;">{{ name }}</span><span style="font-size:11px;color:var(--text-faint);">{{ c.created_at.strftime("%H:%M") }}</span></div>
@@ -68,7 +100,13 @@
               {% if m.sender == "customer" %}
                 <div style="display:flex;justify-content:flex-end;"><div style="background:var(--black);color:#fff;border-radius:12px 12px 2px 12px;padding:10px 13px;font-size:13px;white-space:pre-wrap;max-width:60%;">{{ m.content|format_message }}<div style="font-size:10.5px;color:#BFDBFE;margin-top:4px;">{{ m.created_at.strftime("%H:%M") }}</div></div></div>
               {% else %}
-                <div style="display:flex;gap:8px;"><div style="width:24px;height:24px;border-radius:7px;background:#EC4899;flex-shrink:0;"></div><div style="background:#fff;border:1px solid var(--border);border-radius:12px 12px 12px 2px;padding:10px 13px;font-size:13px;line-height:1.5;white-space:pre-wrap;max-width:60%;">{{ m.content|format_message }}<div style="font-size:10.5px;color:var(--text-faint);margin-top:4px;">{{ m.created_at.strftime("%H:%M") }} {{ "· nhân viên" if m.sender == "staff" else "" }}</div></div></div>
+                {# Tin bot có danh sách sản phẩm được tách thành nhiều bong bóng như khách thấy; giờ và lý do quyết định chỉ ở bong bóng cuối #}
+                {% set segments = (m.content|message_segments) if m.sender == "bot" else [m.content|format_message] %}
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                {% for segment in segments %}
+                <div style="display:flex;gap:8px;">{% if loop.first %}<div style="width:24px;height:24px;border-radius:7px;background:#EC4899;flex-shrink:0;"></div>{% else %}<div style="width:24px;flex-shrink:0;"></div>{% endif %}<div style="background:#fff;border:1px solid var(--border);border-radius:12px 12px 12px 2px;padding:10px 13px;font-size:13px;line-height:1.5;white-space:pre-wrap;max-width:60%;">{{ segment }}{% if loop.last %}<div style="font-size:10.5px;color:var(--text-faint);margin-top:4px;">{{ m.created_at.strftime("%H:%M") }} {{ "· nhân viên" if m.sender == "staff" else "" }}</div>{% set why = m.decision_trace|explain_decision %}{% if why %}<div class="dtag {{ why.decision }}" title="Lý do hệ thống ghi lại cho câu trả lời này">{{ why.text }}</div>{% endif %}{% endif %}</div></div>
+                {% endfor %}
+                </div>
               {% endif %}
             {% else %}
               <div style="text-align:center;color:var(--text-faint);font-size:13px;">Chưa có tin nhắn.</div>
@@ -79,10 +117,4 @@
     {% endif %}
   </div>
 </div>
-{% endblock %}
-{% block footer_left %}
-<a href="{{ url_for('dashboard.bot_publish', bot_id=bot.id) }}" class="btns">← Quay lại: Xuất bản</a>
-{% endblock %}
-{% block footer_right %}
-<a href="{{ url_for('dashboard.index', bot_id=bot.id) }}" class="btnp">Hoàn tất ✓</a>
 {% endblock %}

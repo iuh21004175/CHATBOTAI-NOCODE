@@ -9,11 +9,9 @@
   var itemsBox = $('ib-items');
   var msgsBox = $('ib-msgs');
   var panel = $('ib-panel');
-  var input = $('ib-input');
-  var sendBtn = $('ib-send');
   var errorBox = $('ib-error');
 
-  var state = { list: [], selectedId: null, lastMsgId: 0, search: '', lastDay: '', sending: false };
+  var state = { list: [], selectedId: null, lastMsgId: 0, search: '', lastDay: '' };
   var POLL_MS = 10000;
   var SEARCH_DEBOUNCE_MS = 300;
   var REFRESH_DEBOUNCE_MS = 250;
@@ -68,10 +66,32 @@
     return align.length ? align : null;
   }
 
+  // Danh sách sản phẩm/dịch vụ "**Tên** — mô tả" (từ 2 dòng liền nhau) -> mỗi mục 1 box; giống hệt ITEM_LINE_RE và
+  // parseItemRun() trong app/widget/embed.js.
+  var ITEM_LINE_RE = /^\s*(?:[-*•]\s+|\d+[.)]\s+)?\*\*([^\n]+?)\*\*(?:\s*[—–]\s*|\s+-\s+)(\S.*)$/;
+
+  function parseItemRun(lines, start) {
+    var items = [], i = start, next = start;
+    while (i < lines.length) {
+      var m = ITEM_LINE_RE.exec(lines[i]);
+      if (m) { items.push({ name: m[1].trim(), desc: m[2].trim() }); i++; next = i; }
+      else if (lines[i].trim() === '') i++;
+      else break;
+    }
+    return items.length >= 2 ? { items: items, next: next } : null;
+  }
+
   function parseBlocks(text) {
     var lines = text.split('\n'), blocks = [], buf = [], i = 0;
     function flush() { if (buf.length) { blocks.push({ text: buf.join('\n') }); buf = []; } }
     while (i < lines.length) {
+      var run = ITEM_LINE_RE.test(lines[i]) ? parseItemRun(lines, i) : null;
+      if (run) {
+        flush();
+        blocks.push({ items: run.items });
+        i = run.next;
+        continue;
+      }
       var align = i + 1 < lines.length && lines[i].indexOf('|') >= 0 ? parseTableDelimiter(lines[i + 1]) : null;
       var head = align ? splitTableRow(lines[i]) : null;
       if (head && head.length === align.length) {
@@ -112,16 +132,69 @@
     container.appendChild(el('div', 'ib-tbl')).appendChild(table);
   }
 
-  function renderRichText(container, raw) {
-    var blocks = parseBlocks(raw == null ? '' : String(raw));
+  function renderItems(container, block) {
+    var box = el('div', 'ib-items');
+    block.items.forEach(function (item) {
+      var card = box.appendChild(el('div', 'ib-item'));
+      renderInline(card.appendChild(el('div', 'ib-item-name')), item.name);
+      renderInline(card.appendChild(el('div', 'ib-item-desc')), item.desc);
+    });
+    container.appendChild(box);
+  }
+
+  function renderBlocks(container, blocks) {
     blocks.forEach(function (block, i) {
       if (block.head) { renderTable(container, block); return; }
+      if (block.items) { renderItems(container, block); return; }
       // Xuống dòng sát bảng do khối bảng tự tạo khoảng cách nên bỏ đi, tránh dòng trống thừa.
       var text = block.text;
       if (i > 0) text = text.replace(/^\n+/, '');
       if (i < blocks.length - 1) text = text.replace(/\n+$/, '');
       renderInline(container, text);
     });
+  }
+
+  function renderRichText(container, raw) {
+    renderBlocks(container, parseBlocks(raw == null ? '' : String(raw)));
+  }
+
+  // Mục danh sách thường (đánh số / gạch đầu dòng). Giống hệt LIST_LINE_RE trong app/widget/embed.js và _LIST_LINE_RE trong app/dashboard/service.py.
+  var LIST_LINE_RE = /^\s*(?:[-*•]\s+|\d+[.)]\s+)\S/;
+
+  // Tách 1 khối chữ thành các phần, mỗi phần 1 bong bóng: mỗi ĐOẠN (ngăn cách bằng dòng trống) 1 phần, mỗi MỤC danh sách 1 phần riêng.
+  // Giống hệt splitText() trong app/widget/embed.js và _split_text_parts() trong app/dashboard/service.py.
+  function splitText(text) {
+    var parts = [], para = [], inItem = false;
+    function flush() { var t = para.join('\n').trim(); if (t) parts.push(t); para = []; }
+    text.split('\n').forEach(function (line) {
+      if (line.trim() === '') { flush(); inItem = false; return; }
+      if (LIST_LINE_RE.test(line)) { flush(); inItem = true; }
+      else if (inItem && !/^\s/.test(line)) { flush(); inItem = false; }
+      para.push(line);
+    });
+    flush();
+    return parts;
+  }
+
+  // Tin dài của bot -> nhiều bong bóng riêng (mỗi đoạn, mỗi mục danh sách, mỗi mục "**Tên** — mô tả", mỗi bảng 1 tin). Trả [] nếu chỉ có 1 phần.
+  // Giống hệt splitSegments() trong app/widget/embed.js và message_segments() trong app/dashboard/service.py.
+  function splitSegments(raw) {
+    var segs = [];
+    parseBlocks(raw == null ? '' : String(raw)).forEach(function (b) {
+      if (b.items) b.items.forEach(function (item) { segs.push({ item: item }); });
+      else if (b.head) segs.push({ blocks: [b] });
+      else splitText(b.text).forEach(function (t) { segs.push({ blocks: [{ text: t }] }); });
+    });
+    return segs.length > 1 ? segs : [];
+  }
+
+  function renderSegment(container, seg) {
+    if (seg.item) {
+      renderInline(container.appendChild(el('div', 'ib-item-name')), seg.item.name);
+      renderInline(container.appendChild(el('div', 'ib-item-desc')), seg.item.desc);
+    } else {
+      renderBlocks(container, seg.blocks);
+    }
   }
 
   function api(method, url, body) {
@@ -247,14 +320,19 @@
         state.lastDay = key;
         msgsBox.appendChild(el('div', 'ib-day', dayLabel(m.at)));
       }
-      var row = el('div', 'ib-msg ' + m.sender);
-      if (m.sender === 'bot') row.appendChild(el('div', 'ib-bot-avatar'));
-      if (m.sender === 'staff') row.appendChild(el('div', 'ib-staff-avatar', 'NV'));
-      var bubble = el('div', 'ib-bubble');
-      renderRichText(bubble, m.content);
-      bubble.appendChild(el('span', 'ib-time', hhmm(d) + (m.sender === 'staff' ? ' · nhân viên' : m.sender === 'bot' ? ' · trợ lý AI' : '')));
-      row.appendChild(bubble);
-      msgsBox.appendChild(row);
+      var segs = m.sender === 'bot' ? splitSegments(m.content) : [];
+      (segs.length ? segs : [null]).forEach(function (seg, idx) {
+        var row = el('div', 'ib-msg ' + m.sender);
+        if (m.sender === 'bot') row.appendChild(el('div', 'ib-bot-avatar'));
+        if (m.sender === 'staff') row.appendChild(el('div', 'ib-staff-avatar', 'NV'));
+        var bubble = el('div', 'ib-bubble');
+        if (seg) renderSegment(bubble, seg); else renderRichText(bubble, m.content);
+        if (idx === Math.max(segs.length, 1) - 1) {  // giờ chỉ ở tin cuối của nhóm
+          bubble.appendChild(el('span', 'ib-time', hhmm(d) + (m.sender === 'staff' ? ' · nhân viên' : m.sender === 'bot' ? ' · trợ lý AI' : '')));
+        }
+        row.appendChild(bubble);
+        msgsBox.appendChild(row);
+      });
       state.lastMsgId = Math.max(state.lastMsgId, m.id);
     });
     if (nearBottom || !msgsBox.dataset.scrolled) {
@@ -353,7 +431,6 @@
       .then(function (data) {
         if (state.selectedId !== id) return;   // người dùng đã chuyển sang hội thoại khác trong lúc tải
         applyDetail(data, true);
-        input.focus();
       })
       .catch(function (err) {
         showEmpty('Không mở được hội thoại', err.message);
@@ -373,27 +450,6 @@
   function refreshAll() {
     return loadList().then(refreshSelected).catch(function () { /* mạng chập chờn: lần sau thử lại */ });
   }
-
-  // ---- Gửi tin ----
-  $('ib-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var text = input.value.trim();
-    if (!text || state.sending || !state.selectedId) return;
-    state.sending = true;
-    sendBtn.disabled = true;
-    showError('');
-    api('POST', '/api/inbox/conversations/' + state.selectedId + '/messages', { content: text })
-      .then(function () {
-        input.value = '';
-        return refreshAll();
-      })
-      .catch(function (err) { showError(err.message); })
-      .then(function () {
-        state.sending = false;
-        sendBtn.disabled = false;
-        input.focus();
-      });
-  });
 
   $('ib-back').addEventListener('click', function () { root.classList.remove('show-thread'); });
 

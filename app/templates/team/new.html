@@ -1,0 +1,26 @@
+{% extends "shell.html" %}
+{% block title %}Tạo nhóm{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/team.css') }}">
+{% endblock %}
+{% block main %}
+<div class="team-page">
+  <section class="team-section">
+    <div class="team-section-text">
+      <h2>Tạo nhóm</h2>
+      <p>Tạo một nhóm mới để cộng tác với người khác. Mỗi nhóm có trợ lý, tài liệu và khách hàng riêng, tách biệt hoàn toàn với các nhóm khác.</p>
+    </div>
+    <div class="team-card">
+      <div class="field-label">Chủ nhóm</div>
+      <div class="team-name">{{ current_user.full_name or current_user.email }}</div>
+      <div class="team-email" style="margin-bottom:16px;">{{ current_user.email }}</div>
+      <form method="post" action="{{ url_for('team.new_team') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="field-label" for="team-name">Tên nhóm</label>
+        <input class="field" type="text" id="team-name" name="name" maxlength="255" required autofocus>
+        <button class="primary team-btn" type="submit" style="margin-top:16px;">Tạo</button>
+      </form>
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -60,14 +60,20 @@ def process_summaries_once() -> int:
     for state in pending:
         if redis_client.exists(_backoff_key(state.id)):
             continue
+        lock = jobs.acquire_summary_lock(redis_client, state.conversation_id)
+        if lock is None:
+            continue  # agent đang tóm tắt đúng hội thoại này (công cụ summarize_conversation); cờ giữ nguyên, vòng sau xét lại
         row = BotSettings.query.filter_by(bot_id=state.bot_id).first()
         try:
-            if jobs.summarize_conversation(state, EngineSettings.from_model(row)):
+            db.session.refresh(state)  # agent có thể vừa ghi bản tóm tắt xong: không tóm tắt lại từ trạng thái cũ
+            if state.summary_pending and jobs.summarize_conversation(state, EngineSettings.from_model(row)):
                 written += 1
         except Exception:
             db.session.rollback()
             redis_client.set(_backoff_key(state.id), "1", ex=SUMMARY_BACKOFF_SECONDS)
             logger.exception("[context-jobs] tóm tắt lỗi (conversation_id=%s), thử lại sau %ss", state.conversation_id, SUMMARY_BACKOFF_SECONDS)
+        finally:
+            jobs.release_summary_lock(redis_client, state.conversation_id, lock)
     return written
 
 

@@ -19,3 +19,5 @@ python-dotenv==1.0.1
 gunicorn==23.0.0
 eventlet==0.38.0
 onnxruntime
+deepseek-harness-sdk==0.1.5rc1
+# markitdown KHÔNG nằm trong file này: cài từ mã nguồn (editable), không phải PyPI — xem docs/DOCUMENT_READER.md để biết lệnh cài chính xác.

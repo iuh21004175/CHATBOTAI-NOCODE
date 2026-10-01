@@ -1,0 +1,62 @@
+{% extends "shell.html" %}
+{% set active_nav = "builder" %}
+{% set page_title = "Ứng dụng AI" %}
+{% block title %}Ứng dụng AI{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bot_workspace.css') }}">
+<style>
+.badge{display:inline-flex;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F3F4F6;color:var(--text-soft);}
+.badge.ready{background:var(--green-bg);color:var(--green-text);}
+.badge.spec_generating,.badge.generating,.badge.spec_ready{background:#FEF3C7;color:#92400E;}
+.badge.failed{background:#FEE2E2;color:#B91C1C;}
+.mtable{width:100%;border-collapse:collapse;font-size:13px;}
+.mtable th,.mtable td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.mtable th{font-size:12px;color:var(--text-soft);font-weight:700;}
+textarea.field{min-height:120px;resize:vertical;font-family:inherit;}
+</style>
+{% endblock %}
+{% block main %}
+<div class="ws-container" style="display:flex;flex-direction:column;gap:22px;">
+  <div>
+    <div style="font-size:18px;font-weight:800;">Ứng dụng AI</div>
+    <div class="hint" style="margin-top:6px;">
+      Mô tả ứng dụng quản lý bạn cần (ví dụ: kho, đơn hàng, khách hàng). AI thiết kế cấu trúc dữ liệu và màn hình, bạn duyệt rồi hệ thống tự sinh ứng dụng chạy thật,
+      với cơ sở dữ liệu riêng cho từng ứng dụng (miễn phí {{ config.TENANT_DB_QUOTA_MB }}MB mỗi ứng dụng).
+    </div>
+  </div>
+
+  {% if can_manage_apps %}
+  <div class="card">
+    <div class="card-title">Tạo ứng dụng mới</div>
+    <form method="post" action="{{ url_for('builder.create') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="lbl" for="prompt">Bạn cần ứng dụng gì?</label>
+      <textarea class="field" id="prompt" name="prompt" maxlength="{{ prompt_max }}" required
+        placeholder="vd: Quản lý kho cho cửa hàng điện máy: có sản phẩm, kho, phiếu nhập, phiếu xuất và xem tồn kho."></textarea>
+      <div style="margin-top:12px;"><button class="btnp" type="submit" {{ 'disabled' if apps|length >= max_apps else '' }}>Thiết kế ứng dụng</button>
+      {% if apps|length >= max_apps %}<span class="hint">Đã đạt tối đa {{ max_apps }} ứng dụng cho nhóm.</span>{% endif %}</div>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-title">Ứng dụng của nhóm</div>
+    {% if apps %}
+    <table class="mtable">
+      <thead><tr><th>Tên</th><th>Trạng thái</th><th>Tạo lúc</th><th></th></tr></thead>
+      <tbody>
+      {% for a in apps %}
+        {% set st = status_of(a) %}
+        <tr>
+          <td>{{ a.name }}</td>
+          <td><span class="badge {{ st }}">{{ status_labels[st] }}</span></td>
+          <td>{{ a.created_at.strftime('%d/%m/%Y %H:%M') if a.created_at else '' }}</td>
+          <td><a class="btns" href="{{ url_for('builder.detail', app_id=a.id) }}">Mở</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="hint">Nhóm chưa có ứng dụng nào.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

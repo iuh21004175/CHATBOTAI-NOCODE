@@ -77,7 +77,9 @@ class ConfigDrivesCost(unittest.TestCase):
     """Mỗi cấu hình liên quan phải làm con số đổi đúng chiều — và chỉ đổi phía nó tác động."""
 
     def test_max_tokens_changes_only_upper_bound_output_side(self):
-        a, b = estimate(max_tokens=200), estimate(max_tokens=1500)
+        # Cùng số chữ số: max_tokens nằm trong văn bản prompt ("tối đa khoảng N token") và bộ đếm giả đếm theo ký tự,
+        # nên khác số chữ số thì cận dưới lệch vài phần ba token tùy độ dài prompt — không phải điều test này kiểm chứng.
+        a, b = estimate(max_tokens=200), estimate(max_tokens=900)
         self.assertLess(a["question"]["max"]["vnd"]["off_peak"], b["question"]["max"]["vnd"]["off_peak"])
         self.assertEqual(a["question"]["min"], b["question"]["min"])
 

@@ -1,0 +1,54 @@
+/* ui-kit.css — giao diện chung của app do AI sinh (AB0). Không có style inline/ngoài: CSP của trang app chỉ cho style từ 'self'. */
+:root { --pf-accent: #4f46e5; --pf-border: #e5e7eb; --pf-text: #111827; --pf-soft: #6b7280; --pf-bg: #f9fafb; --pf-danger: #dc2626; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--pf-text); background: var(--pf-bg); }
+.pf-layout { display: flex; min-height: 100vh; }
+.pf-nav { width: 220px; flex: none; background: #fff; border-right: 1px solid var(--pf-border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
+.pf-brand { font-weight: 800; font-size: 15px; padding: 4px 10px 14px; }
+.pf-nav-link { display: block; padding: 8px 10px; border-radius: 8px; color: var(--pf-text); text-decoration: none; }
+.pf-nav-link:hover { background: #f3f4f6; }
+.pf-nav-link.active { background: #eef2ff; color: var(--pf-accent); font-weight: 700; }
+.pf-main { flex: 1; min-width: 0; padding: 24px; }
+.pf-title { margin: 0 0 18px; font-size: 20px; }
+.pf-muted { color: var(--pf-soft); }
+.pf-error { color: var(--pf-danger); font-size: 12.5px; }
+.pf-card { background: #fff; border: 1px solid var(--pf-border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.pf-card-title { margin: 0 0 12px; font-size: 15px; }
+.pf-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.pf-stat { background: #fff; border: 1px solid var(--pf-border); border-radius: 12px; padding: 16px; }
+.pf-stat-value { font-size: 26px; font-weight: 800; }
+.pf-stat-label { color: var(--pf-soft); margin-top: 2px; }
+.pf-toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
+.pf-search { flex: 1; max-width: 320px; padding: 8px 10px; border: 1px solid var(--pf-border); border-radius: 8px; }
+.pf-table-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--pf-border); border-radius: 12px; }
+.pf-table { width: 100%; border-collapse: collapse; }
+.pf-table th, .pf-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--pf-border); white-space: nowrap; }
+.pf-table th { font-size: 12px; color: var(--pf-soft); background: #fafafa; }
+.pf-sortable { cursor: pointer; user-select: none; }
+.pf-row-actions { text-align: right; }
+.pf-row-actions .pf-btn { margin-left: 6px; }
+.pf-pager { display: flex; align-items: center; gap: 12px; margin-top: 10px; justify-content: flex-end; }
+.pf-btn { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--pf-border); background: #fff; cursor: pointer; font: inherit; }
+.pf-btn:hover:not(:disabled) { background: #f3f4f6; }
+.pf-btn:disabled { opacity: .5; cursor: not-allowed; }
+.pf-btn-primary { background: var(--pf-accent); border-color: var(--pf-accent); color: #fff; }
+.pf-btn-primary:hover:not(:disabled) { background: #4338ca; }
+.pf-btn-danger { color: var(--pf-danger); }
+.pf-btn-ghost { border: 0; background: transparent; font-size: 20px; line-height: 1; }
+.pf-row { display: flex; gap: 12px; align-items: center; }
+.pf-overlay { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+.pf-modal { background: #fff; border-radius: 14px; width: 100%; max-width: 520px; max-height: 90vh; overflow: auto; }
+.pf-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--pf-border); }
+.pf-modal-title { font-weight: 700; }
+.pf-modal-body { padding: 18px; }
+.pf-form { display: flex; flex-direction: column; gap: 12px; }
+.pf-field { display: flex; flex-direction: column; gap: 4px; }
+.pf-label { font-size: 12.5px; font-weight: 600; }
+.pf-field input:not([type=checkbox]), .pf-field select, .pf-field textarea { padding: 8px 10px; border: 1px solid var(--pf-border); border-radius: 8px; font: inherit; }
+.pf-field input[type=checkbox] { width: 18px; height: 18px; }
+.pf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+#pf-toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+.pf-toast { padding: 10px 14px; border-radius: 10px; background: #111827; color: #fff; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); }
+.pf-toast-success { background: #047857; }
+.pf-toast-error { background: var(--pf-danger); }
+@media (max-width: 720px) { .pf-layout { flex-direction: column; } .pf-nav { width: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--pf-border); } }

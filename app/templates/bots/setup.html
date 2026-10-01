@@ -18,6 +18,15 @@
 .tpl-note{margin-top:14px;padding:10px 14px;border-radius:10px;background:var(--accent-soft);color:var(--accent-dark);font-size:12.5px;font-weight:600;}
 .tpl-grid[hidden],.tpl-note[hidden]{display:none;}
 
+/* ---- Chế độ Cơ bản / Nâng cao ---- */
+.seg{display:inline-flex;flex-shrink:0;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;}
+.seg-opt{position:relative;cursor:pointer;}
+.seg-opt input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer;}
+.seg-opt span{display:block;padding:8px 18px;font-size:13px;font-weight:700;color:var(--text-soft);}
+.seg-opt input:checked + span{background:var(--black);color:#fff;}
+.seg-opt input:focus-visible + span{outline:2px solid var(--accent);outline-offset:-2px;}
+[data-tier-show][hidden]{display:none;}
+
 /* ---- Khung chỉ dẫn (trình soạn markdown) ---- */
 .ins-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
 .ins-head .card-title{margin:0;}
@@ -106,6 +115,19 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
   <div class="ws-layout-main">
+    <div class="card" id="mode-card">
+      <div class="tpl-head" style="margin-bottom:0;align-items:center;">
+        <div>
+          <div class="card-title" style="margin-bottom:4px;">Chế độ thiết lập</div>
+          <div class="hint" style="margin:0;font-size:13.5px;color:var(--text-soft);">Cơ bản: chỉ các lựa chọn về nội dung trả lời (khuyên dùng). Nâng cao: thêm tinh chỉnh bộ nhớ hội thoại cho người quen chatbot AI.</div>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Chế độ thiết lập">
+          <label class="seg-opt"><input type="radio" name="config_tier" value="basic" {{ "checked" if engine.tier == "basic" else "" }}><span>Cơ bản</span></label>
+          <label class="seg-opt"><input type="radio" name="config_tier" value="advanced" {{ "checked" if engine.tier == "advanced" else "" }}><span>Nâng cao</span></label>
+        </div>
+      </div>
+    </div>
+
     <div class="card" id="tpl-card">
       <div class="tpl-head">
         <div>
@@ -203,8 +225,6 @@
         <option value="en" {{ "selected" if settings.language == "en" else "" }}>English</option>
       </select>
 
-      {# temperature = 0 là giá trị hợp lệ ("Chính xác") — không dùng `or` vì 0.0 bị coi là rỗng #}
-      {% set temp = settings.temperature if settings.temperature is not none else 0.7 %}
       {% call lbl('max_tokens', 'Token đầu ra tối đa', 'margin-top:18px;') %}
         Giới hạn độ dài một câu trả lời của AI (khoảng 1 token ≈ 3–4 ký tự tiếng Việt). Đây là mức trần: AI không bị ép viết cho đủ.
         <span class="tip-line"><b>Thấp (dưới ~200):</b> câu trả lời rất ngắn, có thể bị cắt cụt giữa chừng.</span>
@@ -218,24 +238,24 @@
         <output class="slider-val" id="max_tokens-value" for="max_tokens">{{ settings.max_tokens or 500 }}</output>
       </div>
 
-      {% call lbl('temperature', 'Độ sáng tạo (temperature)', 'margin-top:18px;') %}
-        Mức ngẫu nhiên khi AI chọn từ để viết câu trả lời.
-        <span class="tip-line"><b>0 – 0,3 (chính xác):</b> ổn định, bám sát tài liệu và chỉ dẫn; hợp tư vấn giá, chính sách.</span>
-        <span class="tip-line"><b>0,4 – 0,7 (cân bằng):</b> tự nhiên, linh hoạt mà vẫn đáng tin.</span>
-        <span class="tip-line"><b>0,8 – 1 (sáng tạo):</b> đa dạng, giàu cảm xúc nhưng dễ diễn đạt lệch hoặc thêm ý ngoài tài liệu.</span>
-      {% endcall %}
-      <div class="slider-row">
-        <span class="slider-end">0 (Chính xác)</span>
-        <input type="range" id="temperature" name="temperature" min="0" max="1" step="0.1" value="{{ temp }}">
-        <span class="slider-end">1 (Sáng tạo)</span>
-        <output class="slider-val" id="temperature-value" for="temperature">{{ "%.1f"|format(temp) }}</output>
-      </div>
-
       <div class="eng-sep"></div>
 
+      <div data-tier-show="basic" {{ "hidden" if engine.tier != "basic" else "" }} style="margin-top:14px;">
+        {% call lbl('memory_level', 'Độ nhớ hội thoại') %}
+          Bot nhớ được bao nhiêu phần của cuộc trò chuyện đang diễn ra để trả lời đúng mạch.
+          {% for m in engine.memory_levels %}<span class="tip-line"><b>{{ m.label }}:</b> {{ m.help }}</span>{% endfor %}
+        {% endcall %}
+        <select class="field" id="memory_level" name="memory_level">
+          {% for m in engine.memory_levels %}
+          <option value="{{ m.key }}" {{ "selected" if m.key == engine.memory_level else "" }}>{{ m.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div data-tier-show="advanced" {{ "hidden" if engine.tier != "advanced" else "" }}>
       {% for f in engine.fields %}
       <div style="margin-top:14px;">
-        {# Nhãn không in giá trị: giá trị đang chọn nằm ở ô nhập, hoặc ở ô hiển thị cạnh thanh trượt #}
+        {# Nhãn không in giá trị: giá trị đang chọn nằm ở ô nhập #}
         {% call lbl(f.name, f.label) %}
           {{ f.help }}
           {% if f.low %}<span class="tip-line"><b>Chỉnh nhỏ:</b> {{ f.low }}</span>{% endif %}
@@ -243,18 +263,10 @@
           {% if f.note %}<span class="tip-line">{{ f.note }}</span>{% endif %}
           <span class="tip-line tip-meta">Hợp lệ: {{ f.range_text }} · Mặc định hệ thống: {{ f.default_text }}</span>
         {% endcall %}
-        {% if f.slider %}
-        <div class="slider-row">
-          <span class="slider-end">{{ f.min }} (Khắt khe)</span>
-          <input type="range" id="{{ f.name }}" name="{{ f.name }}" min="{{ f.min }}" max="{{ f.max }}" step="{{ f.step }}" value="{{ f.value }}">
-          <span class="slider-end">{{ f.max }} (Thoáng)</span>
-          <output class="slider-val" id="{{ f.name }}-value" for="{{ f.name }}">{{ "%.2f"|format(f.value) }}</output>
-        </div>
-        {% else %}
         <input class="field" type="number" id="{{ f.name }}" name="{{ f.name }}" min="{{ f.min }}" max="{{ f.max }}" step="{{ f.step }}" value="{{ f.value }}">
-        {% endif %}
       </div>
       {% endfor %}
+      </div>
 
       <div style="margin-top:14px;">
         {% call lbl('low_confidence_reply_mode', 'Khi không có thông tin phù hợp') %}
@@ -308,15 +320,61 @@
     </div>
 
     <div class="card">
-      <div class="card-title">Chuyển tiếp &amp; thu thập dữ liệu</div>
+      <div class="card-title">Tối ưu tốc độ cảm nhận</div>
+      <div class="hint" style="margin-top:-6px;margin-bottom:4px;">Không làm AI trả lời nhanh hơn — giúp khách thấy hệ thống đang làm việc thay vì nhìn màn hình trống trong lúc chờ.</div>
+
       <div class="toggle-row">
         <div>
-          <div class="toggle-row-title">Chuyển tiếp cho nhân viên khi AI không trả lời được</div>
-          <div class="toggle-row-desc">Tự động đẩy hội thoại vào Inbox</div>
+          <div class="toggle-row-title">Hiện tiến trình xử lý thật</div>
+          <div class="toggle-row-desc">"Đang tra cứu tài liệu...", "Đang tổng hợp câu trả lời..." — đúng bước AI đang làm, không phải hiệu ứng giả</div>
         </div>
-        <input type="checkbox" id="forward_to_staff" name="forward_to_staff" {{ "checked" if settings.forward_to_staff else "" }} style="display:none;">
-        <button type="button" class="toggle {{ 'on' if settings.forward_to_staff else '' }}" data-toggle-target="forward_to_staff"><div class="dot"></div></button>
+        <input type="checkbox" id="speed_progress_enabled" name="speed_progress_enabled" {{ "checked" if settings.speed_progress_enabled else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings.speed_progress_enabled else '' }}" data-toggle-target="speed_progress_enabled"><div class="dot"></div></button>
       </div>
+
+      <div id="progress-texts-box" {{ "hidden" if not settings.speed_progress_enabled else "" }} style="padding:14px 0 4px;border-bottom:1px solid #F1F5F9;">
+        {% call lbl('speed_progress_text_analyzing', 'Câu "đang phân tích yêu cầu" (để trống = câu mặc định)') %}
+          Hiện ngay khi nhận được câu hỏi, trước khi AI bắt đầu tra cứu.
+        {% endcall %}
+        <input class="field" type="text" id="speed_progress_text_analyzing" name="speed_progress_text_analyzing" maxlength="{{ speed_text_max }}" value="{{ settings.speed_progress_text_analyzing or '' }}">
+
+        {% call lbl('speed_progress_text_searching', 'Câu "đang tra cứu tài liệu" (để trống = câu mặc định)', 'margin-top:12px;') %}
+          Hiện khi AI đang tìm trong tài liệu đã huấn luyện của trợ lý.
+        {% endcall %}
+        <input class="field" type="text" id="speed_progress_text_searching" name="speed_progress_text_searching" maxlength="{{ speed_text_max }}" value="{{ settings.speed_progress_text_searching or '' }}">
+
+        {% call lbl('speed_progress_text_acting', 'Câu "đang thao tác trên website" (để trống = câu mặc định)', 'margin-top:12px;') %}
+          Chỉ hiện với trợ lý có hành động của Module đã duyệt: khi AI đang thực hiện thao tác trên website (điền form, bấm nút...).
+        {% endcall %}
+        <input class="field" type="text" id="speed_progress_text_acting" name="speed_progress_text_acting" maxlength="{{ speed_text_max }}" value="{{ settings.speed_progress_text_acting or '' }}">
+
+        {% call lbl('speed_progress_text_composing', 'Câu "đang tổng hợp câu trả lời" (để trống = câu mặc định)', 'margin-top:12px;') %}
+          Hiện ngay trước khi AI đưa ra câu trả lời cuối cùng.
+        {% endcall %}
+        <input class="field" type="text" id="speed_progress_text_composing" name="speed_progress_text_composing" maxlength="{{ speed_text_max }}" value="{{ settings.speed_progress_text_composing or '' }}">
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-row-title">Câu đệm khi bắt đầu trả lời</div>
+          <div class="toggle-row-desc">Hiện ngay 1 câu mồi ngẫu nhiên lúc khách vừa gửi tin, trong lúc AI đang xử lý phía sau</div>
+        </div>
+        <input type="checkbox" id="speed_fillers_enabled" name="speed_fillers_enabled" {{ "checked" if settings.speed_fillers_enabled else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings.speed_fillers_enabled else '' }}" data-toggle-target="speed_fillers_enabled"><div class="dot"></div></button>
+      </div>
+
+      <div class="toggle-row" style="border-bottom:none;">
+        <div>
+          <div class="toggle-row-title">Trả lời bất đồng bộ khi lâu</div>
+          <div class="toggle-row-desc">Quá 10 giây chưa xong: báo đã nhận yêu cầu, mở lại ô nhập cho khách hỏi tiếp/xem trang, gửi kết quả khi xong</div>
+        </div>
+        <input type="checkbox" id="speed_async_enabled" name="speed_async_enabled" {{ "checked" if settings.speed_async_enabled else "" }} style="display:none;">
+        <button type="button" class="toggle {{ 'on' if settings.speed_async_enabled else '' }}" data-toggle-target="speed_async_enabled"><div class="dot"></div></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Thu thập dữ liệu</div>
       <div class="toggle-row">
         <div>
           <div class="toggle-row-title">Thu thập thông tin khách hàng</div>
@@ -324,10 +382,6 @@
         </div>
         <input type="checkbox" id="collect_customer_info" name="collect_customer_info" {{ "checked" if settings.collect_customer_info else "" }} style="display:none;">
         <button type="button" class="toggle {{ 'on' if settings.collect_customer_info else '' }}" data-toggle-target="collect_customer_info"><div class="dot"></div></button>
-      </div>
-      <div style="margin-top:14px;">
-        <label class="lbl" for="away_message">Tin nhắn khi vắng mặt nhân viên</label>
-        <textarea class="field" id="away_message" name="away_message" rows="2" style="resize:vertical;">{{ settings.away_message or "" }}</textarea>
       </div>
     </div>
   </div>
@@ -360,8 +414,20 @@
     if (input && out) input.addEventListener('input', function () { out.textContent = parseFloat(input.value).toFixed(digits); });
   }
   bindSlider('max_tokens', 'max_tokens-value', 0);
-  bindSlider('temperature', 'temperature-value', 1);
-  bindSlider('rag_distance_threshold', 'rag_distance_threshold-value', 2);
+
+  // Tắt "Hiện tiến trình xử lý thật" thì ẩn luôn 4 ô câu tuỳ chỉnh (không xoá giá trị đã lưu — chỉ ẩn trên giao diện)
+  var progressToggle = byId('speed_progress_enabled'), progressTexts = byId('progress-texts-box');
+  if (progressToggle && progressTexts) {
+    progressToggle.addEventListener('change', function () { progressTexts.hidden = !progressToggle.checked; });
+  }
+
+  // ---------------- Chế độ Cơ bản / Nâng cao ----------------
+  // Chỉ ẩn/hiện; server quyết định nhận trường nào theo config_tier được gửi lên (xem parse_engine_form).
+  function applyTier() {
+    var checked = document.querySelector('input[name="config_tier"]:checked'), tier = checked ? checked.value : 'basic';
+    document.querySelectorAll('[data-tier-show]').forEach(function (el) { el.hidden = el.dataset.tierShow !== tier; });
+  }
+  document.querySelectorAll('input[name="config_tier"]').forEach(function (r) { r.addEventListener('change', applyTier); });
 
   // ---------------- Chi phí ước tính mỗi câu hỏi ----------------
   // Server tính (cùng phép kiểm tra như lúc lưu) từ cấu hình đang chọn trên form; chưa lưu cũng cập nhật.
@@ -642,7 +708,7 @@
   var TEMPLATES = JSON.parse(byId('tpl-data').textContent);
   var cards = document.querySelectorAll('.tpl[data-key]');
   var grid = byId('tpl-grid'), showBtn = byId('tpl-show'), note = byId('tpl-note');
-  var greeting = byId('greeting'), temperature = byId('temperature');
+  var greeting = byId('greeting');
 
   function setGridOpen(open) {
     grid.hidden = !open;
@@ -662,7 +728,7 @@
       if (t.instructions !== null) {
         var hasOwn = (ta.value.trim() && ta.value.trim() !== t.instructions.trim()) ||
                      (greeting.value.trim() && greeting.value.trim() !== (t.greeting || '').trim());
-        if (hasOwn && !window.confirm('Áp dụng mẫu "' + t.name + '" sẽ thay lời chào, chỉ dẫn và độ sáng tạo đang có. Chưa có gì được lưu cho tới khi bạn bấm "Lưu thay đổi". Tiếp tục?')) return;
+        if (hasOwn && !window.confirm('Áp dụng mẫu "' + t.name + '" sẽ thay lời chào và chỉ dẫn đang có. Chưa có gì được lưu cho tới khi bạn bấm "Lưu thay đổi". Tiếp tục?')) return;
       }
       cards.forEach(function (c) { c.setAttribute('aria-pressed', c === card ? 'true' : 'false'); });
       setInsOpen(true);
@@ -671,10 +737,6 @@
       } else {
         greeting.value = t.greeting;
         setAll(t.instructions);
-        if (t.temperature !== null) {
-          temperature.value = t.temperature;
-          temperature.dispatchEvent(new Event('input', { bubbles: true }));
-        }
         setMessage('');
         showNote('Đã áp dụng mẫu "' + t.name + '": chỉ dẫn tối ưu nằm ở khung "Tùy chỉnh trợ lý của bạn" bên dưới. Xem lại, chỉnh theo doanh nghiệp rồi bấm "Lưu thay đổi".');
       }

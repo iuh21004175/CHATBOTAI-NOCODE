@@ -13,9 +13,13 @@
   <div class="empty-state-icon">🤖</div>
   <div class="empty-state-title">Nhóm của bạn chưa có AI chatbot nào.</div>
   <div class="empty-state-desc">Hãy bắt đầu bằng cách tạo AI chatbot đầu tiên hoặc bấm "Quản lý nhóm" để chuyển sang nhóm khác.</div>
+  {% if can_manage_bots %}
   <a class="empty-state-cta" href="{{ url_for('dashboard.new_bot') }}">
     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
     Tạo chatbot đầu tiên
   </a>
+  {% else %}
+  <div class="empty-state-desc">Chỉ chủ nhóm và quản trị viên mới tạo được chatbot — hãy nhờ họ tạo giúp.</div>
+  {% endif %}
 </div>
 {% endblock %}

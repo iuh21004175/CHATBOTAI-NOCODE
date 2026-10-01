@@ -1,0 +1,177 @@
+{% extends "shell.html" %}
+{% set active_nav = "builder" %}
+{% set page_title = app.name %}
+{% block title %}{{ app.name }} — Ứng dụng AI{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bot_workspace.css') }}">
+<style>
+.badge{display:inline-flex;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F3F4F6;color:var(--text-soft);}
+.badge.ready{background:var(--green-bg);color:var(--green-text);}
+.badge.spec_generating,.badge.generating,.badge.spec_ready{background:#FEF3C7;color:#92400E;}
+.badge.failed{background:#FEE2E2;color:#B91C1C;}
+.mtable{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;}
+.mtable th,.mtable td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:top;}
+.mtable th{font-size:12px;color:var(--text-soft);font-weight:700;}
+.meter{height:8px;border-radius:999px;background:#E5E7EB;overflow:hidden;margin:6px 0;}
+.meter > span{display:block;height:100%;background:var(--accent);}
+.preview{width:100%;height:560px;border:1px solid var(--border);border-radius:12px;background:#fff;}
+.warn{background:#FEF3C7;color:#92400E;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:8px;}
+.err{background:#FEE2E2;color:#B91C1C;border-radius:10px;padding:10px 12px;font-size:13px;}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+</style>
+{% endblock %}
+{% block main %}
+{% set busy = status in ('spec_generating', 'generating') %}
+<div class="ws-container" style="display:flex;flex-direction:column;gap:22px;">
+  <div class="row">
+    <a class="btns" href="{{ url_for('builder.index') }}">← Danh sách</a>
+    <div style="font-size:18px;font-weight:800;">{{ app.name }}</div>
+    <span class="badge {{ status }}" id="status-badge">{{ status_labels[status] }}</span>
+  </div>
+  <div class="hint">Mô tả gốc: {{ app.prompt }}</div>
+
+  {% if error and status == 'failed' %}<div class="err" id="error-box">{{ error }}</div>{% endif %}
+
+  {% if can_manage_apps and status == 'failed' %}
+  <form method="post" action="{{ url_for('builder.retry', app_id=app.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="btnp" type="submit">Thử lại</button>
+  </form>
+  {% endif %}
+
+  {% if app.spec %}
+  <div class="card">
+    <div class="card-title">Spec — {{ app.spec.name }}</div>
+    {% if app.spec.description %}<div class="hint" style="margin-bottom:10px;">{{ app.spec.description }}</div>{% endif %}
+    {% for c in app.spec.collections %}
+      <div style="font-weight:700;margin:12px 0 4px;">{{ c.label }} <span class="hint">({{ c.name }}{% if counts %} · {{ counts.get(c.name, 0) }} bản ghi{% endif %})</span></div>
+      <table class="mtable">
+        <thead><tr><th>Field</th><th>Tên</th><th>Kiểu</th><th>Bắt buộc</th></tr></thead>
+        <tbody>
+        {% for f in c.fields %}
+          <tr><td>{{ f.label }}</td><td>{{ f.name }}</td>
+          <td>{{ field_type_labels[f.type] }}{% if f.type == 'ref' %} → {{ collection_labels.get(f.ref, f.ref) }}{% endif %}</td><td>{{ 'Có' if f.required else '' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
+    <div style="font-weight:700;margin:14px 0 4px;">Màn hình</div>
+    <table class="mtable">
+      <thead><tr><th>Tiêu đề</th><th>Loại</th><th>Mô tả</th></tr></thead>
+      <tbody>
+      {% for s in app.spec.screens %}
+        <tr><td>{{ s.title }}</td><td>{{ 'Danh sách + biểu mẫu' if s.type == 'table' else 'Thống kê' }}{% if s.collection %} — {{ collection_labels.get(s.collection, s.collection) }}{% endif %}</td><td>{{ s.description }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% if can_manage_apps and status in ('spec_ready', 'ready') %}
+    <div class="row" style="margin-top:12px;">
+      <form method="post" action="{{ url_for('builder.approve', app_id=app.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btnp" type="submit">{{ 'Duyệt Spec & sinh ứng dụng' if status == 'spec_ready' else 'Sinh lại giao diện' }}</button>
+      </form>
+      {% if not app.db_name %}
+      <form method="post" action="{{ url_for('builder.regenerate_spec', app_id=app.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btns" type="submit">Thiết kế lại Spec</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% elif busy %}
+  <div class="card"><div class="hint">AI đang thiết kế Spec, trang tự cập nhật khi xong…</div></div>
+  {% endif %}
+
+  {% if app.spec and app.spec.roles %}
+  <div class="card">
+    <div class="card-title">Vai trò &amp; quyền</div>
+    <table class="mtable">
+      <thead><tr><th>Vai trò</th><th>Quyền theo dữ liệu (xem / thêm / sửa / xoá)</th></tr></thead>
+      <tbody>
+      {% for r in app.spec.roles %}
+        <tr><td><b>{{ r.label }}</b><div class="hint">{{ r.description }}</div></td>
+        <td>{% for cname, acts in r.permissions.items() %}<div>{{ collection_labels.get(cname, cname) }}: {% for a in acts %}{{ {'view':'xem','create':'thêm','update':'sửa','delete':'xoá'}[a] }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endfor %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="hint">Chủ nhóm và Quản trị viên luôn có toàn quyền. Thành viên chưa được gán vai trò sẽ không thấy ứng dụng.{% if my_access.role_id %} Vai trò của bạn: {{ my_access.role_label }}.{% endif %}</div>
+  </div>
+  {% endif %}
+
+  {% if can_manage_apps and app.spec and members %}
+  <div class="card">
+    <div class="card-title">Phân vai trò cho thành viên</div>
+    {% if not app.spec.roles %}<div class="hint">Spec chưa có vai trò nào; chỉ Chủ nhóm/Quản trị viên dùng được ứng dụng.</div>{% else %}
+    <table class="mtable">
+      <thead><tr><th>Thành viên</th><th>Vai trò trong nhóm</th><th>Vai trò trong ứng dụng</th></tr></thead>
+      <tbody>
+      {% for m in members %}
+        <tr><td>{{ m.name }}<div class="hint">{{ m.email }}</div></td><td>{{ {'Owner':'Chủ nhóm','Admin':'Quản trị viên','Member':'Thành viên'}.get(m.team_role, m.team_role) }}</td>
+        <td>{% if m.full %}Toàn quyền{% else %}
+          <form method="post" action="{{ url_for('builder.set_member', app_id=app.id) }}" class="row">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="user_id" value="{{ m.user_id }}">
+            <select class="field" name="role_id" style="max-width:220px;">
+              <option value="">— Không có quyền —</option>
+              {% for r in app.spec.roles %}<option value="{{ r.id }}" {{ 'selected' if m.role_id == r.id else '' }}>{{ r.label }}</option>{% endfor %}
+            </select>
+            <button class="btns" type="submit">Lưu</button>
+          </form>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if app.db_name %}
+  <div class="card">
+    <div class="card-title">Dung lượng dữ liệu</div>
+    {% if usage_bytes is not none %}
+      {% set pct = [usage_bytes * 100 / quota_bytes, 100]|min %}
+      <div class="meter"><span style="width:{{ pct }}%"></span></div>
+      <div class="hint">{{ '%.2f'|format(usage_bytes / 1048576) }}MB / {{ app.storage_quota_mb }}MB (miễn phí). Hết hạn mức: không thêm/sửa được dữ liệu cho tới khi xoá bớt hoặc nâng gói.</div>
+    {% else %}<div class="hint">Chưa đo được dung lượng.</div>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if version %}
+  <div class="card">
+    <div class="card-title">Phiên bản {{ version.number }} <span class="hint">· chi phí AI thực: {{ '%.0f'|format(version.llm_cost_vnd) }}đ ({{ (version.llm_calls or [])|length }} lệnh gọi){% if not version.cost_reported %} · có lệnh gọi không đo được{% endif %}</span></div>
+    {% for w in version.scan_warnings or [] %}<div class="warn">{{ w }}</div>{% endfor %}
+    <div class="row" style="margin-bottom:10px;"><a class="btns" href="{{ preview_url }}" target="_blank" rel="noopener">Mở ứng dụng ở tab mới</a></div>
+    <iframe class="preview" src="{{ preview_url }}" title="Xem trước ứng dụng"></iframe>
+  </div>
+  {% endif %}
+  {% if can_manage_apps and audit %}
+  <div class="card">
+    <div class="card-title">Nhật ký thao tác dữ liệu <span class="hint">(50 gần nhất)</span></div>
+    <table class="mtable">
+      <thead><tr><th>Lúc</th><th>Ai</th><th>Thao tác</th><th>Dữ liệu</th><th>Nguồn</th></tr></thead>
+      <tbody>
+      {% for a in audit %}
+        <tr><td>{{ a.created_at.strftime('%d/%m/%Y %H:%M:%S') if a.created_at }}</td><td>{{ user_names.get(a.user_id, '#' ~ a.user_id) }}</td>
+        <td>{{ {'create':'Thêm','update':'Sửa','delete':'Xoá'}[a.action] }}</td><td>{{ collection_labels.get(a.collection, a.collection) }} #{{ a.record_id }}</td>
+        <td>{{ 'Chatbot' if a.source == 'chatbot' else 'Giao diện' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block shell_extra_js %}
+{% if busy %}
+<script>
+(function () {
+  var url = {{ url_for('builder.status', app_id=app.id)|tojson }};
+  var current = {{ status|tojson }};
+  var timer = setInterval(function () {
+    fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.status !== current) { clearInterval(timer); window.location.reload(); }
+    }).catch(function () { /* mạng chập chờn: lần hỏi sau sẽ thử lại */ });
+  }, 3000);
+})();
+</script>
+{% endif %}
+{% endblock %}

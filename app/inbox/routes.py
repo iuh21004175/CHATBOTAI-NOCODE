@@ -7,7 +7,6 @@ from flask import Blueprint, abort, jsonify, request, session
 from flask_login import login_required
 
 from app.csrf import verify_csrf_token
-from extensions import limiter
 
 from . import service
 
@@ -56,16 +55,3 @@ def update_conversation(conversation_id):
     return jsonify(service.conversation_detail(conv))
 
 
-@bp.route("/conversations/<int:conversation_id>/messages", methods=["POST"])
-@login_required
-@limiter.limit("60 per minute")
-def reply_message(conversation_id):
-    """Nhân viên gửi tin nhắn trả lời thủ công, phát realtime qua Flask-SocketIO"""
-    conv = _conversation_or_404(conversation_id)
-    if not verify_csrf_token(request.headers.get("X-CSRF-Token", "")):
-        return jsonify(error=CSRF_ERROR), 400
-    payload = request.get_json(silent=True)
-    message, error = service.reply_message(_team_id(), conv, payload.get("content") if isinstance(payload, dict) else None)
-    if error:
-        return jsonify(error=error), 400
-    return jsonify(message=message), 201

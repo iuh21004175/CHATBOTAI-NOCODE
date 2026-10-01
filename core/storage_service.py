@@ -27,6 +27,24 @@ def save_icon(team_id: int, bot_id: int, filename: str, file_stream, length: int
     return key
 
 
+def save_module_zip(team_id: int, bot_id: int, module_id: int, url_id: int, raw: bytes) -> str:
+    """Lưu file .zip GỐC (chưa giải nén) do chủ bot tải lên cho 1 URL module (Phase M). Mỗi lần khai báo lại ghi đè cùng khoá (chỉ giữ bản mới nhất)."""
+    import io
+
+    key = f"{team_id}/{bot_id}/modules/{module_id}/url-{url_id}.zip"
+    minio_client.put_object(Config.MINIO_BUCKET, key, io.BytesIO(raw), len(raw), content_type="application/zip")
+    return key
+
+
+def save_attachment(team_id: int, bot_id: int, attachment_id: int, extension: str, raw: bytes) -> str:
+    """Lưu tệp khách gửi trong widget (module "Đọc tài liệu"). Tên object không chứa tên tệp của khách (chỉ id + đuôi đã kiểm) nên không có ký tự lạ/đường dẫn."""
+    import io
+
+    key = f"{team_id}/{bot_id}/attachments/{attachment_id}{extension}"
+    minio_client.put_object(Config.MINIO_BUCKET, key, io.BytesIO(raw), len(raw))
+    return key
+
+
 def get_file(object_key: str):
     """Đọc file từ MinIO theo object key."""
     return minio_client.get_object(Config.MINIO_BUCKET, object_key)

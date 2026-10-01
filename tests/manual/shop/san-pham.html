@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Áo thun nam — Cửa hàng thử</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- TRANG THỬ cho kiểm thử thủ công Phase M (Website Action Engine). Không phải mã của sản phẩm.
+     Mở:  http://localhost:8081/san-pham.html?bot=<public_id của bot>   (public_id lấy ở Bước 3 — Xuất bản) -->
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  nav { display: flex; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid #ddd; margin-bottom: 16px; }
+  .price { font-size: 26px; font-weight: 700; color: #b91c1c; }
+  form { border: 1px solid #ddd; border-radius: 8px; padding: 14px; margin: 14px 0; }
+  input { padding: 6px 8px; margin: 4px 0; }
+  .btn { padding: 8px 16px; border: 0; border-radius: 6px; background: #1d4ed8; color: #fff; cursor: pointer; }
+  #cart-message, #contact-result { color: #15803d; font-weight: 600; min-height: 1.4em; }
+</style>
+</head>
+<body>
+<nav>
+  <a id="home-link" href="san-pham.html">Sản phẩm</a>
+  <a id="cart-link" class="nav cart" href="gio-hang.html">Giỏ hàng (<span id="cart-count">0</span>)</a>
+</nav>
+
+<h1 class="product-title">Áo thun nam cổ tròn</h1>
+<p>Chất liệu cotton 100%, nhiều màu. Bảo hành đổi trả 7 ngày.</p>
+<p>Giá: <span id="price" class="price">199.000đ</span></p>
+<p>Tình trạng: <span id="stock">Còn hàng (còn 25 sản phẩm)</span></p>
+
+<form id="add-form" action="/them-gio" method="post">
+  <label for="qty">Số lượng</label>
+  <input type="number" id="qty" name="quantity" value="1" min="1">
+  <button type="submit" id="add-btn" class="btn add-to-cart">Thêm vào giỏ</button>
+</form>
+<div id="cart-message" role="status"></div>
+
+<form id="contact-form" action="/lien-he" method="post">
+  <strong>Để lại thông tin tư vấn</strong><br>
+  <input id="fullname" name="fullname" placeholder="Họ tên"><br>
+  <input id="phone" name="phone" placeholder="Số điện thoại"><br>
+  <button type="submit" id="send-contact" class="btn">Gửi thông tin</button>
+</form>
+<div id="contact-result" role="status"></div>
+
+<script>
+  var CART_KEY = 'shop-demo-cart';
+  function cartCount() { return Number(localStorage.getItem(CART_KEY) || 0); }
+  function renderCount() { document.getElementById('cart-count').textContent = cartCount(); }
+  renderCount();
+
+  document.getElementById('add-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var qty = Math.max(1, parseInt(document.getElementById('qty').value, 10) || 1);
+    localStorage.setItem(CART_KEY, cartCount() + qty);
+    renderCount();
+    document.getElementById('cart-message').textContent = 'Đã thêm ' + qty + ' sản phẩm vào giỏ hàng';
+  });
+  document.getElementById('contact-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    document.getElementById('contact-result').textContent =
+      'Đã nhận thông tin: ' + document.getElementById('fullname').value + ' / ' + document.getElementById('phone').value;
+  });
+
+  // Nhúng widget: lấy public_id từ ?bot=... (nhớ lại khi chuyển trang), origin của máy chủ chatbot có thể đổi bằng ?server=...
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var bot = q.get('bot') || sessionStorage.getItem('shop-demo-bot');
+    var server = q.get('server') || sessionStorage.getItem('shop-demo-server') || 'http://localhost:5000';
+    if (!bot) { console.warn('Thiếu ?bot=<public_id>'); return; }
+    sessionStorage.setItem('shop-demo-bot', bot);
+    sessionStorage.setItem('shop-demo-server', server);
+    var s = document.createElement('script');
+    s.src = server + '/widget/embed.js';
+    s.setAttribute('data-bot-id', bot);
+    document.body.appendChild(s);
+  })();
+</script>
+</body>
+</html>

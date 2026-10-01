@@ -1,0 +1,157 @@
+{% extends "shell.html" %}
+{% block title %}Hồ sơ &amp; AI Credit{% endblock %}
+{% block shell_extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/team.css') }}">
+<style>
+.credit-balance { font-size: 30px; font-weight: 800; letter-spacing: -.5px; }
+.credit-balance small { display: block; margin-bottom: 4px; font-size: 12.5px; font-weight: 600; color: var(--text-faint); letter-spacing: 0; }
+.topup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 4px; }
+.topup-card { position: relative; display: block; cursor: pointer; }
+.topup-card input[type=radio] { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.topup-box { display: block; box-sizing: border-box; border: 1.5px solid var(--border); border-radius: 12px; padding: 14px 12px; text-align: center; background: #fff; height: 100%; }
+.topup-card input:checked + .topup-box { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: var(--accent-soft); }
+.topup-card input:focus-visible + .topup-box { outline: 2px solid var(--accent); outline-offset: 2px; }
+.topup-plan { display: block; font-size: 12.5px; color: var(--text-soft); min-height: 18px; }
+.topup-amount { display: block; font-size: 21px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.topup-tag { display: inline-block; font-size: 10.5px; font-weight: 800; color: #fff; background: var(--accent); padding: 2px 8px; border-radius: 999px; margin-bottom: 4px; }
+.topup-custom { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
+.topup-custom .field { max-width: 220px; }
+.topup-custom[hidden] { display: none; }
+.topup-actions { margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.topup-actions button { width: auto; margin: 0; padding: 10px 26px; }
+.topup-actions button[disabled] { opacity: .55; cursor: not-allowed; }
+.topup-note { font-size: 12.5px; color: var(--text-faint); }
+.credit-soon { font-size: 12.5px; font-weight: 700; color: var(--amber-text); background: var(--amber-bg); padding: 3px 10px; border-radius: 999px; }
+.order-status { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #F3F4F6; color: var(--text-soft); }
+.order-status.paid { background: var(--green-bg); color: var(--green-text); }
+.credit-amount { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.credit-amount.in { color: var(--green-text); }
+.credit-empty { color: var(--text-faint); font-size: 13.5px; }
+</style>
+{% endblock %}
+{% block main %}
+<div class="team-page">
+
+  <section class="team-section">
+    <div class="team-section-text">
+      <h2>Tài khoản</h2>
+      <p>Thông tin đăng nhập của bạn.</p>
+    </div>
+    <div class="team-card">
+      <div class="team-static">{{ user.full_name or user.email }}</div>
+      <div class="team-hint">{{ user.email }} · Nhóm: {{ team.name }}</div>
+    </div>
+  </section>
+
+  <section class="team-section">
+    <div class="team-section-text">
+      <h2>AI Credit</h2>
+      <p>Mỗi lượt trợ lý AI trả lời khách sẽ trừ một phần Credit của nhóm. Hết Credit, trợ lý tạm dừng trả lời.</p>
+    </div>
+    <div class="team-card">
+      <div class="credit-balance" id="credit-balance"><small>AI Credit</small>{{ balance_vnd|vnd }}</div>
+    </div>
+  </section>
+
+  <section class="team-section" id="topup">
+    <div class="team-section-text">
+      <h2>Nạp Credit</h2>
+      <p>Chọn gói nạp, thanh toán qua payOS (chuyển khoản QR). 1đ = 1 AI Credit; Credit được cộng ngay khi thanh toán thành công.</p>
+    </div>
+    <div class="team-card">
+      {% if can_topup %}
+      <form method="post" action="{{ url_for('payments.topup') }}" id="topup-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="topup-grid">
+          {% for label, amount in topup_plans %}
+          <label class="topup-card">
+            <input type="radio" name="package" value="{{ amount }}" {{ "checked" if amount == popular_amount else "" }}>
+            <span class="topup-box">
+              {% if amount == popular_amount %}<span class="topup-tag">PHỔ BIẾN</span>{% endif %}
+              <span class="topup-plan">{{ label }}</span>
+              <span class="topup-amount">{{ amount|vnd }}</span>
+            </span>
+          </label>
+          {% endfor %}
+          <label class="topup-card">
+            <input type="radio" name="package" value="custom" id="topup-custom-radio">
+            <span class="topup-box">
+              <span class="topup-plan">Doanh nghiệp / Custom</span>
+              <span class="topup-amount">{{ custom_min|vnd }}+</span>
+            </span>
+          </label>
+        </div>
+        <div class="topup-custom" id="topup-custom" hidden>
+          <input class="field" type="text" inputmode="numeric" name="custom_amount" id="topup-custom-amount" placeholder="Nhập số tiền (từ {{ custom_min|vnd }})" autocomplete="off" aria-label="Số tiền nạp">
+          <span class="topup-note">Bội số của {{ custom_step|vnd }}</span>
+        </div>
+        <div class="topup-actions">
+          <button class="primary" type="submit" {{ "" if payments_configured else "disabled aria-disabled=true" }}>Nạp Credit</button>
+          {% if not payments_configured %}<span class="credit-soon">Chưa mở thanh toán</span>{% endif %}
+        </div>
+      </form>
+      <script>
+      (function () {
+        var box = document.getElementById('topup-custom');
+        document.querySelectorAll('input[name="package"]').forEach(function (r) {
+          r.addEventListener('change', function () { box.hidden = document.getElementById('topup-custom-radio').checked === false; });
+        });
+      })();
+      </script>
+      {% else %}
+      <div class="credit-empty">Chỉ chủ nhóm hoặc quản trị viên mới nạp được Credit.</div>
+      {% endif %}
+      {% if orders %}
+      <table class="team-table" id="order-history" style="margin-top:18px;">
+        <thead><tr><th>Đơn nạp</th><th>Số tiền</th><th>Trạng thái</th></tr></thead>
+        <tbody>
+          {% for o in orders %}
+          <tr>
+            <td class="team-date">{{ o.created_at.strftime("%H:%M %d/%m/%Y") }}</td>
+            <td><span class="credit-amount">{{ o.amount_vnd|vnd }}</span></td>
+            <td><span class="order-status {{ o.status }}">{{ order_labels.get(o.status, o.status) }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="team-section">
+    <div class="team-section-text">
+      <h2>Lịch sử sử dụng</h2>
+      <p>{{ transactions|length }} giao dịch gần nhất.</p>
+    </div>
+    <div class="team-card">
+      {% if transactions %}
+      <table class="team-table" id="credit-history">
+        <thead><tr><th>Thời gian</th><th>Nội dung</th><th style="text-align:right;">Credit</th></tr></thead>
+        <tbody>
+          {% for t in transactions %}
+          <tr>
+            <td class="team-date">{{ t.created_at.strftime("%H:%M %d/%m/%Y") }}</td>
+            <td>{{ type_labels.get(t.type, t.type) }}</td>
+            <td style="text-align:right;"><span class="credit-amount {{ 'in' if t.amount_vnd > 0 else '' }}">{{ t.amount_vnd|vnd(true) }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="credit-empty">Chưa có giao dịch nào.</div>
+      {% endif %}
+    </div>
+  </section>
+
+</div>
+<script>
+// Mở đúng mục sau khi vào trang bằng query "?open=<id>" (vd link "Nạp Credit" từ trang chủ khi CHƯA đăng nhập: URL FRAGMENT "#topup" không
+// bao giờ tới được server nên bị mất qua chặng chuyển hướng đăng nhập/đăng ký/OAuth — phải dùng query string, sống sót qua toàn bộ chặng đó).
+(function () {
+  var id = new URLSearchParams(location.search).get('open');
+  var target = id && document.getElementById(id);
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+})();
+</script>
+{% endblock %}
